@@ -3,25 +3,50 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "next dev -p 3000 --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:e2e": "start-server-and-test dev http://localhost:3000 'playwright test'"
   },
   "dependencies": {
+    "@paypal/paypal-js": "^8.2.0",
+    "@paypal/paypal-server-sdk": "^1.0.0",
+    "@supabase/realtime-js": "^2.11.7",
+    "@supabase/ssr": "^0.6.1",
+    "@supabase/supabase-js": "^2.49.4",
+    "chart.js": "^4.4.9",
+    "date-fns": "^4.1.0",
+    "next": "15.3.1",
     "react": "^19.0.0",
+    "react-chartjs-2": "^5.3.0",
     "react-dom": "^19.0.0",
-    "next": "15.3.1"
+    "recharts": "^2.15.3",
+    "stripe": "^18.1.0",
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
-    "typescript": "^5",
+    "@eslint/eslintrc": "^3",
+    "@playwright/test": "^1.52.0",
+    "@tailwindcss/postcss": "^4",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@types/jest": "^29.5.14",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@tailwindcss/postcss": "^4",
-    "tailwindcss": "^4",
+    "@types/supertest": "^6.0.3",
     "eslint": "^9",
     "eslint-config-next": "15.3.1",
-    "@eslint/eslintrc": "^3"
+    "jest": "^29.7.0",
+    "jest-environment-node": "^29.7.0",
+    "node-mocks-http": "^1.17.2",
+    "start-server-and-test": "^2.0.11",
+    "supertest": "^7.1.0",
+    "tailwindcss": "^4",
+    "ts-jest": "^29.3.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5"
   }
 }

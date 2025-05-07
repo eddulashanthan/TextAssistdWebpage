@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Environment files (never commit secrets)
+.env*
+
+# Vercel deployment artifacts
+.vercel
+
+# Note: Vercel manages environment variables per branch in the dashboard.
+# Do not commit .env files for dev or production. Use Vercel's UI for secrets.
