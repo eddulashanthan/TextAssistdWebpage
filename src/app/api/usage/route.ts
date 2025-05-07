@@ -37,10 +37,7 @@ export async function GET(request: Request) {
       usageHistory: mockUsageHistory,
       licenseStatus: 'active'
     });
-  } catch (error) {
-    return NextResponse.json(
-      { success: false, message: 'Failed to fetch usage data' },
-      { status: 500 }
-    );
+  } catch {
+    return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
 }

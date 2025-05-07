@@ -19,33 +19,6 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
-  useEffect(() => {
-    if (!user) return;
-    
-    fetchLicenses();
-
-    // Subscribe to license updates
-    const channel = supabase
-      .channel(`user-licenses-${user.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'licenses',
-          filter: `user_id=eq.${user.id}`,
-        },
-        () => {
-          fetchLicenses();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user]);
-
   const fetchLicenses = async () => {
     try {
       const { data, error } = await supabase
@@ -64,6 +37,30 @@ export default function DashboardPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!user) return;
+    fetchLicenses();
+    // Subscribe to license updates
+    const channel = supabase
+      .channel(`user-licenses-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'licenses',
+          filter: `user_id=eq.${user.id}`,
+        },
+        () => {
+          fetchLicenses();
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -135,7 +132,7 @@ export default function DashboardPage() {
                 Welcome, {user?.email || 'User'}!
               </h3>
               <p className="text-gray-500 dark:text-gray-400 mb-6">
-                You don't have any licenses yet. Purchase one to get started with TextAssistd.
+                You&apos;re not have any licenses yet. Purchase one to get started with TextAssistd.
               </p>
               <Link
                 href="/pricing"

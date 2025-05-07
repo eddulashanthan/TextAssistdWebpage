@@ -47,12 +47,12 @@ export default function UsagePage() {
       if (response.ok) {
         setHoursRemaining(data.hoursRemaining);
         setUsageData({
-          dates: data.usageHistory.map((h: any) => h.date),
-          hours: data.usageHistory.map((h: any) => h.hours)
+          dates: data.usageHistory.map((h: { date: string }) => h.date),
+          hours: data.usageHistory.map((h: { hours: number }) => h.hours)
         });
         setLicenseStatus(data.licenseStatus || 'active');
       }
-    } catch (error) {
+    } catch {
       setError('Failed to fetch usage data');
     }
   };

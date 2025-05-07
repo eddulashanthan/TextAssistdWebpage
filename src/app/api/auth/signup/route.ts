@@ -24,10 +24,7 @@ export async function POST(request: Request) {
       user: data.user,
       message: 'Signup successful. Please check your email for verification.',
     });
-  } catch (error) {
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+  } catch {
+    return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
 }

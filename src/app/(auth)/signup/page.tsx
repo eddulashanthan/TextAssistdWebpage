@@ -35,8 +35,8 @@ export default function SignupPage() {
       // After successful signup, redirect to the dashboard
       // The user will need to verify their email if required by Supabase settings
       router.push('/dashboard');
-    } catch (err) {
-      setError('Failed to create account. Please try again.');
+    } catch {
+      setError('Failed to sign up. Please try again.');
     } finally {
       setIsLoading(false);
     }
