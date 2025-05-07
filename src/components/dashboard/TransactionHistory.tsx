@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/utils/supabase';
 import type { Transaction } from '@/lib/utils/supabase';
 import { LoadingSpinner } from '../ui/LoadingSpinner';
@@ -13,6 +13,25 @@ export function TransactionHistory({ userId }: TransactionHistoryProps) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const fetchTransactions = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      setTransactions(data);
+    } catch (err) {
+      setError('Failed to load transaction history');
+      console.error('Error fetching transactions:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [userId]);
 
   useEffect(() => {
     fetchTransactions();
@@ -37,26 +56,7 @@ export function TransactionHistory({ userId }: TransactionHistoryProps) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [userId]);
-
-  const fetchTransactions = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      setTransactions(data);
-    } catch (err) {
-      setError('Failed to load transaction history');
-      console.error('Error fetching transactions:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [userId, fetchTransactions]);
 
   if (loading) {
     return (

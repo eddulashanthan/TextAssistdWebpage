@@ -1,6 +1,13 @@
-type MockData = {
-  [key: string]: unknown;
-} | null;
+interface MockLicense {
+  id: string;
+  key: string;
+  status: 'active' | 'expired' | 'revoked';
+  hours_remaining: number;
+  linked_system_id?: string | null;
+  last_validated_at?: string | null;
+}
+
+type MockData = MockLicense | null;
 
 let storedData: MockData = null;
 
@@ -20,49 +27,32 @@ const createResponse = (data: unknown = null, error: unknown = null) => {
   });
 };
 
-// Create mock builders that maintain chainability
-const createFilterBuilder = (data: any = null) => ({
-  eq: jest.fn().mockReturnThis(),
-  single: jest.fn().mockImplementation(() => createResponse(data))
-});
-
-const createBuilder = (data: any = null) => {
-  // Store filter state per builder instance
-  const builder = {
-    _filterKey: null as string | null,
-    _filterValue: null as any,
-    select: jest.fn().mockReturnThis(),
-    eq: jest.fn().mockImplementation(function (this: any, key, value) {
-      this._filterKey = key;
-      this._filterValue = value;
-      return this;
-    }),
-    single: jest.fn().mockImplementation(function (this: any) {
-      if (!data) return createResponse(null);
-      if (this._filterKey && data[this._filterKey] !== this._filterValue) return createResponse(null);
-      return createResponse(data);
-    }),
-    update: jest.fn().mockReturnThis()
-  };
-  return builder;
-};
+interface FilterBuilder {
+  _filterKey: string | null;
+  _filterValue: unknown;
+  select(): FilterBuilder;
+  eq(key: string, value: unknown): FilterBuilder;
+  single(): Promise<ReturnType<typeof createResponse>>;
+  update(data: Partial<MockLicense>): FilterBuilder;
+}
 
 export const mockSupabase = {
-  from: jest.fn().mockImplementation((table: string) => {
+  from: jest.fn().mockImplementation((table: string): FilterBuilder => {
     return {
-      _filterKey: null as string | null,
-      _filterValue: null as unknown,
+      _filterKey: null,
+      _filterValue: null,
       select: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockImplementation(function (this: any, key: string, value: unknown) {
+      eq: jest.fn().mockImplementation(function(this: FilterBuilder, key: string, value: unknown) {
         this._filterKey = key;
         this._filterValue = value;
         return this;
       }),
-      single: jest.fn().mockImplementation(function (this: any) {
-        // Only support the 'licenses' table for now
+      single: jest.fn().mockImplementation(function(this: FilterBuilder) {
         if (table !== 'licenses') return createResponse(null);
         if (!storedData) return createResponse(null);
-        if (this._filterKey && (storedData as any)[this._filterKey] !== this._filterValue) return createResponse(null);
+        if (this._filterKey && storedData[this._filterKey as keyof MockLicense] !== this._filterValue) {
+          return createResponse(null);
+        }
         return createResponse(storedData);
       }),
       update: jest.fn().mockReturnThis()
@@ -74,46 +64,59 @@ export const mockSupabase = {
     }
 
     if (funcName === 'validate_license') {
-      const isValid = params.license_key === (storedData as any).key;
+      const isValid = params.license_key === storedData.key;
       if (!isValid) {
         return createResponse({ valid: false, message: 'License not found' });
       }
-      // Simulate SQL logic: check status, hours_remaining, and system binding
-      if ((storedData as any).status !== 'active') {
-        return createResponse({ valid: false, message: `License is ${(storedData as any).status}` });
+      if (storedData.status !== 'active') {
+        return createResponse({ valid: false, message: `License is ${storedData.status}` });
       }
-      if ((storedData as any).hours_remaining <= 0) {
+      if (storedData.hours_remaining <= 0) {
         return createResponse({ valid: false, message: 'No hours remaining' });
       }
-      if ((storedData as any).linked_system_id && (storedData as any).linked_system_id !== params.system_id) {
+      if (storedData.linked_system_id && storedData.linked_system_id !== params.system_id) {
         return createResponse({ valid: false, message: 'License is bound to different system' });
       }
-      // Simulate system binding
-      if (!(storedData as any).linked_system_id) {
-        (storedData as any).linked_system_id = params.system_id;
+      if (!storedData.linked_system_id) {
+        storedData.linked_system_id = params.system_id as string;
       }
       return createResponse({
         valid: true,
-        hours_remaining: (storedData as any).hours_remaining,
+        hours_remaining: storedData.hours_remaining,
         message: 'License valid'
       });
     }
 
     if (funcName === 'track_usage') {
       const hoursUsed = (params.minutes_used as number) / 60;
-      if ((storedData as any).status !== 'active') {
-        return createResponse({ success: false, message: 'License not found or inactive', hours_remaining: (storedData as any).hours_remaining });
+      if (storedData.status === 'revoked') {
+        return createResponse({ 
+          success: false, 
+          message: 'License is revoked', 
+          hours_remaining: storedData.hours_remaining 
+        });
       }
-      if ((storedData as any).hours_remaining < hoursUsed) {
-        return createResponse({ success: false, message: 'Insufficient hours remaining', hours_remaining: (storedData as any).hours_remaining });
+      if (storedData.status !== 'active') {
+        return createResponse({ 
+          success: false, 
+          message: 'License not found or inactive', 
+          hours_remaining: storedData.hours_remaining 
+        });
       }
-      (storedData as any).hours_remaining = Math.max(0, (storedData as any).hours_remaining - hoursUsed);
-      if ((storedData as any).hours_remaining === 0) {
-        (storedData as any).status = 'expired';
+      if (storedData.hours_remaining < hoursUsed) {
+        return createResponse({ 
+          success: false, 
+          message: 'Insufficient hours remaining', 
+          hours_remaining: storedData.hours_remaining 
+        });
+      }
+      storedData.hours_remaining = Math.max(0, storedData.hours_remaining - hoursUsed);
+      if (storedData.hours_remaining === 0) {
+        storedData.status = 'expired';
       }
       return createResponse({
         success: true,
-        hours_remaining: (storedData as any).hours_remaining,
+        hours_remaining: storedData.hours_remaining,
         message: 'Usage tracked successfully'
       });
     }

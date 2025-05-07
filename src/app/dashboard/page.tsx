@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/lib/context/AuthContext';
 import { supabase } from '@/lib/utils/supabase';
 import type { License } from '@/lib/utils/supabase';
@@ -19,7 +19,7 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
-  const fetchLicenses = async () => {
+  const fetchLicenses = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('licenses')
@@ -36,7 +36,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -60,7 +60,7 @@ export default function DashboardPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user]);
+  }, [user, fetchLicenses]);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
