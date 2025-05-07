@@ -1,12 +1,7 @@
-'use client';
-
+import LogoutMessage from '@/components/home/LogoutMessage';
 import Link from "next/link";
-import { useSearchParams } from 'next/navigation';
 
 export default function Home() {
-  const searchParams = useSearchParams();
-  const showLogout = searchParams.get('logout') === '1';
-
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-gray-800">
       {/* Navigation */}
@@ -37,11 +32,7 @@ export default function Home() {
       {/* Hero Section */}
       <main className="pt-24 pb-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {showLogout && (
-            <div className="mb-6 p-4 bg-green-50 dark:bg-green-900/50 border border-green-200 dark:border-green-800 rounded-md text-center">
-              <span className="text-green-700 dark:text-green-400 font-medium">Successfully logged out.</span>
-            </div>
-          )}
+          <LogoutMessage />
           <div className="text-center">
             <h1 className="text-4xl sm:text-6xl font-bold tracking-tight">
               Your AI Assistant, <span className="text-blue-600 dark:text-blue-400">Always Ready</span>

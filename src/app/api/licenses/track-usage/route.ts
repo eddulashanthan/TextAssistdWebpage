@@ -3,6 +3,11 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { supabase as defaultSupabase } from '@/lib/utils/supabase';
 
+// Handle OPTIONS requests for CORS
+export async function OPTIONS() {
+  return NextResponse.json({}, { status: 200 });
+}
+
 export async function POST(req: NextRequest) {
   try {
     let supabase;
@@ -10,7 +15,7 @@ export async function POST(req: NextRequest) {
     if (process.env.NODE_ENV === 'test') {
       supabase = defaultSupabase;
     } else {
-      const cookieStore = await cookies(); // Await the cookies promise
+      const cookieStore = await cookies();
       supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
