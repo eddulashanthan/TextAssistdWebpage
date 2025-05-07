@@ -88,7 +88,7 @@ export function UsageTrackingPanel() {
       } else {
         setError(data.error || 'Failed to track usage');
       }
-    } catch (error) {
+    } catch {
       setError('Failed to track usage');
     }
   };
@@ -176,4 +176,4 @@ export function UsageTrackingPanel() {
       </div>
     </div>
   );
-} 
+}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   AreaChart,
   Area,
@@ -31,7 +31,6 @@ export function UsageChart({ licenseId }: UsageChartProps) {
   // Pre-process data to fill in missing days with zero usage
   const processedData = useMemo(() => {
     const today = new Date();
-    const thirtyDaysAgo = subDays(today, 30);
     
     // Create a map of existing data points
     const dataMap = new Map(
@@ -50,6 +49,26 @@ export function UsageChart({ licenseId }: UsageChartProps) {
 
     return allDates;
   }, [data]);
+
+  const fetchUsageData = useCallback(async () => {
+    try {
+      const { data: usageData, error } = await supabase
+        .from('license_usage')
+        .select('tracked_at, minutes_used')
+        .eq('license_id', licenseId)
+        .gte('tracked_at', subDays(new Date(), 30).toISOString())
+        .order('tracked_at', { ascending: true });
+
+      if (error) throw error;
+
+      setData(usageData || []);
+    } catch (err) {
+      setError('Failed to load usage data');
+      console.error('Error fetching usage data:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [licenseId]);
 
   useEffect(() => {
     fetchUsageData();
@@ -82,27 +101,7 @@ export function UsageChart({ licenseId }: UsageChartProps) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [licenseId]);
-
-  const fetchUsageData = async () => {
-    try {
-      const { data: usageData, error } = await supabase
-        .from('license_usage')
-        .select('tracked_at, minutes_used')
-        .eq('license_id', licenseId)
-        .gte('tracked_at', subDays(new Date(), 30).toISOString())
-        .order('tracked_at', { ascending: true });
-
-      if (error) throw error;
-
-      setData(usageData || []);
-    } catch (err) {
-      setError('Failed to load usage data');
-      console.error('Error fetching usage data:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [licenseId, fetchUsageData]);
 
   if (loading) {
     return (

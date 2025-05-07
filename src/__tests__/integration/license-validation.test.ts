@@ -1,5 +1,7 @@
+import { mockSupabase } from '../mocks/supabase';
+
 jest.mock('@/lib/utils/supabase', () => ({
-  supabase: require('../mocks/supabase').mockSupabase
+  supabase: mockSupabase
 }));
 
 import { NextRequest } from 'next/server';

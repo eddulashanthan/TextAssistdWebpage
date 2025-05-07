@@ -100,7 +100,7 @@ export default function UsagePage() {
       } else {
         setError(data.error || 'Failed to track usage');
       }
-    } catch (error) {
+    } catch {
       setError('Failed to track usage');
     }
   };

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/lib/context/AuthContext';
 import { supabase } from '@/lib/utils/supabase';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
@@ -25,12 +25,7 @@ export default function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!user) return;
-    loadProfile();
-  }, [user]);
-
-  const loadProfile = async () => {
+  const loadProfile = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('profiles')
@@ -51,7 +46,12 @@ export default function SettingsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    loadProfile();
+  }, [user, loadProfile]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -188,7 +188,7 @@ export default function SettingsPage() {
                       className="block w-full rounded-md border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                     />
                     <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                      Where you'll receive usage reports and license notifications
+                      Where you&apos;ll receive usage reports and license notifications
                     </p>
                   </div>
                 </div>

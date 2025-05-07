@@ -94,7 +94,7 @@ export default function PricingPage() {
             Simple, Transparent Pricing
           </h1>
           <p className="mt-4 max-w-xl mx-auto text-xl text-gray-500 dark:text-gray-300">
-            Choose the perfect plan for your needs. All plans include full access to TextAssistd's features.
+            Choose the perfect plan for your needs. All plans include full access to TextAssistd&apos;s features.
           </p>
         </div>
       </div>
