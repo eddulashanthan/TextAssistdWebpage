@@ -28,24 +28,32 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  // Check auth status
   const { data: { session } } = await supabase.auth.getSession();
 
-  // Protect dashboard and related routes
-  if (request.nextUrl.pathname.startsWith('/dashboard')) {
+  // Handle protected routes
+  if (request.nextUrl.pathname.startsWith('/dashboard') || 
+      request.nextUrl.pathname.startsWith('/api/licenses') ||
+      request.nextUrl.pathname.startsWith('/api/usage')) {
     if (!session) {
+      // For API routes, return 401 Unauthorized
+      if (request.nextUrl.pathname.startsWith('/api/')) {
+        return NextResponse.json(
+          { error: 'Unauthorized' },
+          { status: 401 }
+        );
+      }
+      // For dashboard routes, redirect to login
       const redirectUrl = new URL('/login', request.url);
       redirectUrl.searchParams.set('redirect', request.nextUrl.pathname);
       return NextResponse.redirect(redirectUrl);
     }
   }
 
-  // Redirect logged-in users away from auth pages
-  if (session && (
-    request.nextUrl.pathname.startsWith('/login') ||
-    request.nextUrl.pathname.startsWith('/signup')
-  )) {
-    return NextResponse.redirect(new URL('/dashboard', request.url));
+  // Handle auth routes (login/signup)
+  if (request.nextUrl.pathname === '/login' || request.nextUrl.pathname === '/signup') {
+    if (session) {
+      return NextResponse.redirect(new URL('/dashboard', request.url));
+    }
   }
 
   return res;
@@ -54,6 +62,8 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     '/dashboard/:path*',
+    '/api/licenses/:path*',
+    '/api/usage/:path*',
     '/login',
     '/signup',
   ],

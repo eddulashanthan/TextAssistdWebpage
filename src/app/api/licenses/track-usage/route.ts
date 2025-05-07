@@ -4,31 +4,39 @@ import { cookies } from 'next/headers';
 import { supabase as defaultSupabase } from '@/lib/utils/supabase';
 
 export async function POST(req: NextRequest) {
-  let supabase;
-  
-  // In test environment, use the mocked Supabase client
-  if (process.env.NODE_ENV === 'test') {
-    supabase = defaultSupabase;
-  } else {
-    // In production, use server-side Supabase client with cookies
-    const cookieStore = await cookies();
-    supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          get(name: string) {
-            return cookieStore.get(name)?.value;
-          },
-        },
-      }
-    );
-  }
-
   try {
+    let supabase;
+    
+    if (process.env.NODE_ENV === 'test') {
+      supabase = defaultSupabase;
+    } else {
+      const cookieStore = cookies();
+      supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+          cookies: {
+            get(name: string) {
+              return cookieStore.get(name)?.value;
+            },
+          },
+        }
+      );
+    }
+
+    // Get current session to verify authentication
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const body = await req.json();
     const { licenseId, hoursUsed } = body;
     
+    if (!licenseId) {
+      return NextResponse.json({ error: 'License ID is required' }, { status: 400 });
+    }
+
     if (typeof hoursUsed !== 'number' || hoursUsed <= 0) {
       return NextResponse.json({ error: 'Hours used must be a positive number' }, { status: 400 });
     }
@@ -49,16 +57,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Server error' }, { status: 500 });
     }
 
-    if (!usageResult.success) {
+    if (!usageResult?.success) {
       // Map specific error messages
-      if (usageResult.message?.includes('revoked')) {
+      if (usageResult?.message?.includes('revoked')) {
         return NextResponse.json({ error: 'License is revoked' }, { status: 403 });
       }
-      if (usageResult.message?.includes('insufficient')) {
+      if (usageResult?.message?.includes('insufficient')) {
         return NextResponse.json({ error: 'Insufficient hours remaining' }, { status: 403 });
       }
+      if (usageResult?.message?.includes('expired')) {
+        return NextResponse.json({ error: 'License is expired' }, { status: 403 });
+      }
       return NextResponse.json({ 
-        error: usageResult.message || 'Failed to track usage'
+        error: usageResult?.message || 'Failed to track usage'
       }, { status: 403 });
     }
 
