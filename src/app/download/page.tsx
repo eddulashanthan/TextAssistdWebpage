@@ -1,7 +1,5 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-
 export default function DownloadPage() {
   return (
     <main className="container mx-auto px-4 py-8">

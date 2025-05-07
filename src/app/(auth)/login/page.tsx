@@ -26,8 +26,8 @@ export default function LoginPage() {
       }
 
       router.push('/dashboard');
-    } catch (err) {
-      setError('Invalid email or password');
+    } catch {
+      setError('Failed to sign in. Please check your credentials.');
     } finally {
       setIsLoading(false);
     }

@@ -44,12 +44,12 @@ export function UsageTrackingPanel() {
       if (response.ok) {
         setMinutesRemaining(data.minutesRemaining);
         setUsageData({
-          dates: data.usageHistory.map((h: any) => h.date),
-          minutes: data.usageHistory.map((h: any) => h.minutes)
+          dates: data.usageHistory.map((h: { date: string }) => h.date),
+          minutes: data.usageHistory.map((h: { minutes: number }) => h.minutes)
         });
         setLicenseStatus(data.licenseStatus || 'active');
       }
-    } catch (error) {
+    } catch {
       setError('Failed to fetch usage data');
     }
   };

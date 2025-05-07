@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { useAuth } from '@/lib/context/AuthContext';
-import Link from 'next/link';
 
 const PRICING_TIERS = [
   {
@@ -58,7 +57,6 @@ export default function PricingPage() {
     }
 
     setIsLoading(tierIndex);
-    setError('');
 
     try {
       const response = await fetch(`/api/payments/${method}/create-${method === 'stripe' ? 'checkout' : 'order'}`, {
@@ -80,7 +78,7 @@ export default function PricingPage() {
 
       // Redirect to payment page
       window.location.href = data.url;
-    } catch (err) {
+    } catch {
       setError('Failed to initialize payment. Please try again.');
     } finally {
       setIsLoading(null);
