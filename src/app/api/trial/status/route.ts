@@ -1,60 +1,96 @@
 // src/app/api/trial/status/route.ts
 import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+import type { ServerTrialState } from '@/lib/types/trial';
 
-export async function POST(request: Request) { // Changed to POST to accept system_id in body
+// Define these in a shared utility file (e.g., src/lib/utils/apiUtils.ts) later
+function createErrorResponse(message: string, status: number, details?: unknown): NextResponse {
+  console.error(`API Error: ${message}`, details);
+  return NextResponse.json({ error: message, details }, { status });
+}
+
+function createSuccessResponse(data: unknown, status: number = 200): NextResponse {
+  return NextResponse.json(data, { status });
+}
+
+export async function GET(request: Request) {
+  let supabaseAdmin;
   try {
-    const { system_id } = await request.json();
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-    if (!system_id) {
-      return NextResponse.json({ error: 'system_id is required' }, { status: 400 });
+    if (!supabaseUrl || !supabaseServiceRoleKey) {
+      return createErrorResponse('Supabase configuration missing', 500);
+    }
+    supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
+
+    const { searchParams } = new URL(request.url);
+    const deviceId = searchParams.get('deviceId');
+
+    if (!deviceId) {
+      return createErrorResponse('deviceId query parameter is required', 400);
     }
 
-    // Placeholder logic: Simulate checking trial status
-    console.log(`Placeholder: Trial status requested for system_id: ${system_id}`);
+    const { data: trial, error: fetchError } = await supabaseAdmin
+      .from('trials')
+      .select('*')
+      .eq('device_id', deviceId)
+      .maybeSingle();
 
-    // Scenario 1: Active trial
+    if (fetchError) {
+      return createErrorResponse('Error fetching trial status', 500, fetchError.message);
+    }
+
+    if (!trial) {
+      return createSuccessResponse({
+        isActive: false,
+        message: 'No trial found for this device.',
+        error: 'Trial not found.' // Added to conform with ServerTrialState and provide more context
+      } as ServerTrialState, 200); // Return 200 with isActive: false as per typical status checks
+    }
+
     const now = new Date();
-    const expiryTime = new Date(now.getTime() + 10 * 60 * 1000); // 10 minutes remaining
+    const expiresAt = new Date(trial.expires_at);
+    const isActive = expiresAt > now;
+    let remainingDays = 0;
 
-    const mockStatusResponse = {
-      trial_id: `trial_existing_${Date.now()}`,
-      system_id: system_id,
-      user_id: null, // Or a mock user_id
-      status: 'active', // Could also be 'expired' or 'not_found'
-      start_time: new Date(now.getTime() - 10 * 60 * 1000).toISOString(), // Started 10 mins ago
-      expiry_time: expiryTime.toISOString(),
-      duration_seconds: 1200, // 20 minutes total
-      remaining_seconds: Math.max(0, Math.floor((expiryTime.getTime() - now.getTime()) / 1000)),
-      total_usage_minutes: 5, // Mock usage
-      sessions_count: 2,      // Mock sessions
-      features_used: ['feature_A'], // Mock features
-      message: 'Trial status retrieved (placeholder).',
-    };
+    if (isActive) {
+      remainingDays = Math.ceil((expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    }
 
-    // // Scenario 2: Expired trial
-    // const pastExpiryTime = new Date(now.getTime() - 5 * 60 * 1000); // Expired 5 mins ago
-    // const mockStatusResponse = {
-    //   trial_id: `trial_expired_${Date.now()}`,
-    //   system_id: system_id,
-    //   status: 'expired',
-    //   expiry_time: pastExpiryTime.toISOString(),
-    //   message: 'Trial has expired (placeholder).',
-    // };
-
-    // // Scenario 3: Trial not found
-    // if (system_id === "unknown_system_id") {
-    //    return NextResponse.json({ error: 'Trial not found for this system ID (placeholder)' }, { status: 404 });
-    // }
-
-
-    return NextResponse.json(mockStatusResponse, { status: 200 });
+    return createSuccessResponse({
+      isActive,
+      trialId: trial.id,
+      deviceId: trial.device_id,
+      trialActivatedAt: trial.activated_at,
+      trialExpiresAt: trial.expires_at,
+      remainingDays,
+      message: isActive ? 'Trial is active.' : 'Trial has expired.',
+    } as ServerTrialState);
 
   } catch (error) {
-    console.error('Error in /api/trial/status (placeholder):', error);
-    let errorMessage = 'An unknown error occurred';
+    let errorMessage = 'An unknown error occurred while fetching trial status.';
+    let errorDetails: unknown;
     if (error instanceof Error) {
-        errorMessage = error.message;
+      errorMessage = error.message;
+      errorDetails = error.stack;
+    } else if (typeof error === 'string') {
+      errorMessage = error;
     }
-    return NextResponse.json({ error: 'Failed to get trial status (placeholder)', details: errorMessage }, { status: 500 });
+    return createErrorResponse('Failed to fetch trial status', 500, { message: errorMessage, details: errorDetails });
   }
+}
+
+// Basic CORS Headers - Vercel handles OPTIONS preflight automatically for functions.
+// However, ensure your Vercel project settings also allow your Swift app's origin if necessary.
+// Or, use next.config.js for more robust CORS configuration.
+export async function OPTIONS(request: Request) {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Origin': '*', // Be more specific in production
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    },
+  });
 }

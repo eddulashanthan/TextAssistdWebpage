@@ -34,10 +34,11 @@ export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const isApiLicensesGeneral = pathname.startsWith('/api/licenses');
   const isTrackUsageRoute = pathname === '/api/licenses/track-usage';
+  const isTrialRoute = pathname.startsWith('/api/trial/');
 
-  // Protect dashboard, general /api/licenses (but not track-usage), and /api/usage
+  // Protect dashboard, general /api/licenses (but not track-usage or trial routes), and /api/usage
   if (pathname.startsWith('/dashboard') || 
-      (isApiLicensesGeneral && !isTrackUsageRoute) || 
+      (isApiLicensesGeneral && !isTrackUsageRoute && !isTrialRoute) || 
       pathname.startsWith('/api/usage')) {
     if (!session) {
       // For API routes, return 401 Unauthorized
@@ -68,6 +69,7 @@ export const config = {
   matcher: [
     '/dashboard/:path*',
     '/api/licenses/:path*',
+    '/api/trial/:path*',
     '/api/usage/:path*',
     '/login',
     '/signup',
