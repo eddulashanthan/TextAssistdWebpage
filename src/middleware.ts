@@ -13,6 +13,7 @@ export function middleware(request: NextRequest) {
     '/api/trial/activate',
     '/api/trial/status',
     '/api/licenses/track-usage',
+    '/api/licenses/validate',
     '/api/payments/stripe/webhook',
     '/api/payments/paypal/webhook',
   ];
