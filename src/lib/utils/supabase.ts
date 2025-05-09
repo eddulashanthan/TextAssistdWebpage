@@ -19,6 +19,7 @@ export type License = {
   hours_purchased: number;
   hours_remaining: number;
   purchase_date: string;
+  expires_at: string;
   last_validated_at: string | null;
   linked_system_id: string | null;
   status: 'active' | 'expired' | 'revoked';

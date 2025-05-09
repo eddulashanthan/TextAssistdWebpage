@@ -21,7 +21,7 @@ Call log:
 # Page snapshot
 
 ```yaml
-- alert: TextAssistd - AI Assistant for macOS
+- alert
 - button "Open Next.js Dev Tools":
   - img
 - button "Open issues overlay": 1 Issue

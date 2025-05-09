@@ -31,9 +31,14 @@ export async function middleware(request: NextRequest) {
   const { data: { session } } = await supabase.auth.getSession();
 
   // Handle protected routes
-  if (request.nextUrl.pathname.startsWith('/dashboard') || 
-      request.nextUrl.pathname.startsWith('/api/licenses') ||
-      request.nextUrl.pathname.startsWith('/api/usage')) {
+  const pathname = request.nextUrl.pathname;
+  const isApiLicensesGeneral = pathname.startsWith('/api/licenses');
+  const isTrackUsageRoute = pathname === '/api/licenses/track-usage';
+
+  // Protect dashboard, general /api/licenses (but not track-usage), and /api/usage
+  if (pathname.startsWith('/dashboard') || 
+      (isApiLicensesGeneral && !isTrackUsageRoute) || 
+      pathname.startsWith('/api/usage')) {
     if (!session) {
       // For API routes, return 401 Unauthorized
       if (request.nextUrl.pathname.startsWith('/api/')) {

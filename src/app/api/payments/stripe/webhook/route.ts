@@ -1,7 +1,7 @@
-import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import Stripe from 'stripe';
 import { supabase } from '@/lib/utils/supabase';
+import { createErrorResponse, createSuccessResponse } from '@/lib/apiUtils';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2025-04-30.basil',
@@ -13,14 +13,16 @@ export async function POST(request: Request) {
   const signature = headersList.get('stripe-signature');
 
   if (!signature) {
-    return NextResponse.json(
-      { error: 'Missing stripe-signature header' },
-      { status: 400 }
+    return createErrorResponse(
+      'Missing stripe-signature header',
+      400,
+      'MISSING_HEADER'
     );
   }
 
+  let event: Stripe.Event;
   try {
-    const event = stripe.webhooks.constructEvent(
+    event = stripe.webhooks.constructEvent(
       body,
       signature,
       process.env.STRIPE_WEBHOOK_SECRET!
@@ -29,6 +31,7 @@ export async function POST(request: Request) {
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object as Stripe.Checkout.Session;
       const { userId, hours } = session.metadata!;
+      const customerEmail = session.customer_details?.email; // Get customer email
 
       // Create license using the Supabase function
       const { data: licenseData, error: licenseError } = await supabase.rpc(
@@ -44,22 +47,70 @@ export async function POST(request: Request) {
       );
 
       if (licenseError) {
-        console.error('License creation failed:', licenseError);
-        return NextResponse.json(
-          { error: 'Failed to create license' },
-          { status: 500 }
+        console.error('Stripe Webhook: License creation failed:', licenseError);
+        return createErrorResponse(
+          'Failed to create license',
+          500,
+          'LICENSE_CREATION_FAILED',
+          { details: licenseError.message } // Pass only message for security
         );
       }
 
-      return NextResponse.json(licenseData);
+      // If license creation was successful and we have a license key, prepare for email
+      if (licenseData && licenseData.success && licenseData.license_key) {
+        console.log(`Stripe Webhook: License created: ${licenseData.license_key} for user ${userId}, email: ${customerEmail}`);
+        
+        // TODO: Implement email sending logic here
+        // Example:
+        // if (customerEmail) {
+        //   await sendLicenseKeyEmail(customerEmail, licenseData.license_key);
+        //   console.log(`Stripe Webhook: Attempted to send license key ${licenseData.license_key} to ${customerEmail}`);
+        // } else {
+        //   console.error('Stripe Webhook: Customer email not found in Stripe session, cannot send license key email.');
+        // }
+      } else {
+        // Log an issue but still acknowledge the event to Stripe with a success response.
+        // This is because the core event (payment) was likely processed by Stripe.
+        // Not returning 2xx could cause Stripe to retry sending the webhook, leading to duplicate processing attempts.
+        console.error('Stripe Webhook: License creation RPC did not return success or license_key:', licenseData);
+      }
+
+      // Acknowledge the event to Stripe successfully.
+      // The actual business logic result (license creation) is handled above.
+      return createSuccessResponse({ 
+        eventProcessed: 'checkout.session.completed',
+        licenseDetails: licenseData 
+      }); 
     }
 
-    return NextResponse.json({ received: true });
-  } catch (error) {
-    console.error('Webhook error:', error);
-    return NextResponse.json(
-      { error: 'Webhook handler failed' },
-      { status: 400 }
-    );
+    // Handle other event types gracefully by acknowledging them
+    console.log(`Stripe Webhook: Received unhandled event type: ${event.type}`);
+    return createSuccessResponse({ eventReceived: event.type, handled: false });
+
+  } catch (error: unknown) { 
+    console.error('API StripeWebhook: Unhandled error in webhook:', error);
+    let errorMessage = 'An unexpected server error occurred while processing the Stripe webhook.';
+    let errorName: string | undefined;
+    let statusCode = 500;
+    let errorCode = 'STRIPE_WEBHOOK_INTERNAL_ERROR';
+    let errorDetails: Record<string, unknown> = {};
+
+    if (error instanceof Stripe.errors.StripeError) {
+      errorMessage = error.message;
+      statusCode = error.statusCode || 500;
+      errorCode = error.type || 'STRIPE_API_ERROR'; // Could be more specific like STRIPE_WEBHOOK_SIGNATURE_ERROR if we can distinguish
+      errorDetails = { stripeErrorType: error.type, stripeRaw: error.raw };
+    } else if (error instanceof SyntaxError && error.message.includes('JSON')) {
+      // This case might not be hit if Stripe SDK handles JSON parsing issues before this catch block
+      return createErrorResponse('Invalid JSON payload in webhook.', 400, 'INVALID_JSON_PAYLOAD', { details: error.message });
+    } else if (error instanceof Error) {
+      errorMessage = error.message;
+      errorName = error.name;
+      errorDetails = { errorName: errorName };
+    } else {
+      errorDetails = { thrownValue: error };
+    }
+    
+    return createErrorResponse(errorMessage, statusCode, errorCode, errorDetails);
   }
 }

@@ -1,6 +1,5 @@
-import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
-// import { supabase } from '@/lib/utils/supabase';
+import { createErrorResponse, createSuccessResponse } from '@/lib/apiUtils';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2025-04-30.basil',
@@ -14,12 +13,16 @@ const PRICE_MAP = {
 
 export async function POST(request: Request) {
   try {
-    const { hours, userId } = await request.json();
+    const body = await request.json();
+    const { hours, userId } = body;
 
     if (!hours || !userId || !PRICE_MAP[hours as keyof typeof PRICE_MAP]) {
-      return NextResponse.json(
-        { error: 'Invalid hours selected' },
-        { status: 400 }
+      console.warn('API StripeCreateCheckout: Invalid input - hours or userId missing or invalid hours value.');
+      return createErrorResponse(
+        'Invalid hours or user ID provided.', 
+        400, 
+        'INVALID_INPUT_HOURS_USERID', 
+        { receivedHours: hours, receivedUserId: userId }
       );
     }
 
@@ -48,12 +51,40 @@ export async function POST(request: Request) {
       },
     });
 
-    return NextResponse.json({ url: session.url });
-  } catch (error) {
-    console.error('Stripe session creation failed:', error);
-    return NextResponse.json(
-      { error: 'Failed to create checkout session' },
-      { status: 500 }
+    console.info('API StripeCreateCheckout: Successfully created Stripe session:', session.id);
+    return createSuccessResponse({ url: session.url }, 200);
+
+  } catch (error: unknown) {
+    console.error('API StripeCreateCheckout: Session creation failed:', error);
+    let errorMessage = 'Failed to create checkout session due to an internal server issue.';
+    let errorName: string | undefined;
+    let statusCode = 500;
+    let errorCode = 'STRIPE_CHECKOUT_INTERNAL_ERROR';
+    let errorDetails: Record<string, unknown> = {};
+
+    if (error instanceof SyntaxError && error.message.includes('JSON')) {
+      return createErrorResponse('Invalid JSON payload.', 400, 'INVALID_JSON_PAYLOAD', { details: error.message });
+    }
+
+    if (error instanceof Stripe.errors.StripeError) {
+      errorMessage = error.message;
+      statusCode = error.statusCode || 500;
+      errorCode = error.type || 'STRIPE_API_ERROR';
+      errorDetails = { stripeErrorType: error.type, stripeCharge: error.charge, stripeDeclineCode: error.decline_code, stripeRaw: error.raw };
+    } else if (error instanceof Error) {
+      errorMessage = error.message;
+      errorName = error.name;
+      errorDetails = { errorName: errorName };
+    } else {
+      // Non-Error object thrown
+      errorDetails = { thrownValue: error };
+    }
+
+    return createErrorResponse(
+      errorMessage,
+      statusCode,
+      errorCode,
+      errorDetails
     );
   }
 }

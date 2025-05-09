@@ -57,6 +57,7 @@ export default function PricingPage() {
     }
 
     setIsLoading(tierIndex);
+    setError(''); // Clear previous errors
 
     try {
       const response = await fetch(`/api/payments/${method}/create-${method === 'stripe' ? 'checkout' : 'order'}`, {
@@ -67,19 +68,58 @@ export default function PricingPage() {
         body: JSON.stringify({
           hours: PRICING_TIERS[tierIndex].hours,
           userId: user.id,
+          productName: PRICING_TIERS[tierIndex].name,
+          amount: PRICING_TIERS[tierIndex].price,
+          currency: 'USD', // Or your desired currency
         }),
       });
 
       if (!response.ok) {
-        throw new Error('Payment initialization failed');
+        let errorJson;
+        try {
+          errorJson = await response.json();
+        } catch (e) {
+          throw new Error(`Payment initialization failed: ${response.statusText || 'Server error'}`);
+        }
+        console.error('Payment initialization API error:', errorJson);
+        throw new Error(errorJson.message || `Payment initialization failed with status: ${response.status}`);
       }
 
-      const data = await response.json();
+      const jsonResponse = await response.json();
 
-      // Redirect to payment page
-      window.location.href = data.url;
-    } catch {
-      setError('Failed to initialize payment. Please try again.');
+      if (!jsonResponse.success || !jsonResponse.data) {
+        console.error('Payment API did not return success or data:', jsonResponse);
+        throw new Error(jsonResponse.message || 'Payment API returned an unsuccessful or malformed response.');
+      }
+
+      if (method === 'stripe') {
+        if (jsonResponse.data.url && typeof jsonResponse.data.url === 'string') {
+          window.location.href = jsonResponse.data.url;
+        } else {
+          console.error('Stripe checkout URL not found in response:', jsonResponse);
+          throw new Error('Failed to retrieve Stripe checkout URL. Please try again.');
+        }
+      } else if (method === 'paypal') {
+        if (jsonResponse.data.links && Array.isArray(jsonResponse.data.links)) {
+          const approveLink = jsonResponse.data.links.find((link: { rel: string; href: string }) => link.rel === 'approve');
+          if (approveLink && approveLink.href) {
+            window.location.href = approveLink.href;
+          } else {
+            console.error('PayPal approve link not found in response:', jsonResponse);
+            throw new Error('Failed to retrieve PayPal approval link. Please try again.');
+          }
+        } else {
+          console.error('PayPal links array not found in response:', jsonResponse);
+          throw new Error('Malformed response from PayPal API. Please try again.');
+        }
+      }
+    } catch (err: unknown) {
+      let message = 'Failed to initialize payment. Please try again.';
+      if (err instanceof Error) {
+        message = err.message;
+      }
+      console.error('handlePayment caught an error:', err);
+      setError(message);
     } finally {
       setIsLoading(null);
     }
@@ -164,7 +204,6 @@ export default function PricingPage() {
                       window.location.href = `/login?redirect=/pricing`;
                       return;
                     }
-                    // Optionally, show a modal for payment method selection here
                     handlePayment(index, 'stripe'); // Default to Stripe for now
                   }}
                   disabled={isLoading === index}

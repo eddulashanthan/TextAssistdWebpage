@@ -1,39 +1,48 @@
 # Test info
 
 - Name: Usage Tracking Flow >> should show error and disable tracking for expired license
-- Location: /Users/shanthankumarreddyeddula/TextAssistd/text-assistd-webpage/e2e/usage-tracking.spec.ts:76:7
+- Location: /Users/shanthankumarreddyeddula/TextAssistd/text-assistd-webpage/e2e/usage-tracking.spec.ts:89:7
 
 # Error details
 
 ```
-Error: page.fill: Test timeout of 30000ms exceeded.
-Call log:
-  - waiting for locator('[data-testid="email-input"]')
+Error: Timed out 5000ms waiting for expect(locator).toContainText(expected)
 
-    at /Users/shanthankumarreddyeddula/TextAssistd/text-assistd-webpage/e2e/usage-tracking.spec.ts:78:16
+Locator: locator('[data-testid="usage-error"]')
+Expected string: "License is expired"
+Received string: "License ID is required"
+Call log:
+  - expect.toContainText with timeout 5000ms
+  - waiting for locator('[data-testid="usage-error"]')
+    9 × locator resolved to <div data-testid="usage-error" class="mt-4 p-4 bg-red-50 text-red-700 rounded-md">License ID is required</div>
+      - unexpected value "License ID is required"
+
+    at /Users/shanthankumarreddyeddula/TextAssistd/text-assistd-webpage/e2e/usage-tracking.spec.ts:105:63
 ```
 
 # Page snapshot
 
 ```yaml
-- alert
+- alert: TextAssistd - AI Assistant for macOS
 - button "Open Next.js Dev Tools":
   - img
 - navigation:
   - link "TextAssistd":
     - /url: /
-  - text: licensed@example.com
+  - text: nolicense@example.com
   - button "Sign Out"
 - main:
   - heading "Dashboard" [level=1]
   - paragraph: Manage your TextAssistd licenses and monitor usage
   - heading "License Usage" [level=3]
-  - text: active Hours Remaining 5.9h License Key •••••••••••••••••••
+  - text: expired Your license has expired. Purchase more hours to continue using TextAssistd.
+  - button "Purchase"
+  - text: Hours Remaining 0h License Key ••••••••••••••••••
   - button "Show license key":
     - img
   - button "Copy license key":
     - img
-  - text: 41% used 10h total
+  - text: 100% used 10h total
   - paragraph: Purchased
   - paragraph: 5/7/2025
   - paragraph: Last Used
@@ -43,7 +52,10 @@ Call log:
   - heading "Track Usage" [level=2]
   - heading "Current Status" [level=2]
   - paragraph: "Minutes Remaining:"
-  - button "Track Usage"
+  - spinbutton: "10"
+  - button "Confirm"
+  - button "Cancel"
+  - text: License ID is required
   - heading "Usage History" [level=2]
   - img
   - paragraph: No transactions found
@@ -52,100 +64,111 @@ Call log:
 # Test source
 
 ```ts
-   1 | import { test, expect } from '@playwright/test';
-   2 |
-   3 | test.describe('Usage Tracking Flow', () => {
-   4 |   test.beforeEach(async ({ page }) => {
-   5 |     // Go to login page and login as a test user
-   6 |     await page.goto('/login');
-   7 |     await page.fill('[data-testid="email-input"]', 'licensed@example.com');
-   8 |     await page.fill('[data-testid="password-input"]', 'Test1234');
-   9 |     await page.click('[data-testid="login-button"]');
-  10 |     await page.waitForURL('/dashboard');
-  11 |   });
-  12 |
-  13 |   test('should display current usage minutes remaining', async ({ page }) => {
-  14 |     const minutesElem = page.locator('[data-testid="usage-minutes-remaining"]');
-  15 |     await expect(minutesElem).toBeVisible();
-  16 |     const text = await minutesElem.textContent();
-  17 |     expect(text).toMatch(/Minutes Remaining:/);
-  18 |   });
-  19 |
-  20 |   test('should track usage and update minutes remaining', async ({ page }) => {
-  21 |     const minutesElem = page.locator('[data-testid="usage-minutes-remaining"]');
-  22 |     await expect(minutesElem).toBeVisible();
-  23 |     const beforeText = await minutesElem.textContent();
-  24 |     const before = parseFloat((beforeText || '').replace(/[^0-9.]/g, ''));
-  25 |     if (isNaN(before)) {
-  26 |       throw new Error(`Could not parse minutes remaining: "${beforeText}"`);
-  27 |     }
-  28 |
-  29 |     await page.click('[data-testid="track-usage-button"]');
-  30 |     await page.fill('[data-testid="usage-minutes-input"]', '15');
-  31 |     await page.click('[data-testid="confirm-usage-button"]');
-  32 |     await expect(page.locator('[data-testid="usage-success"]')).toBeVisible();
-  33 |
-  34 |     // Wait for UI to update
-  35 |     await page.waitForTimeout(500);
-  36 |     const afterText = await minutesElem.textContent();
-  37 |     const after = parseFloat((afterText || '').replace(/[^0-9.]/g, ''));
-  38 |     if (isNaN(after)) {
-  39 |       throw new Error(`Could not parse minutes remaining after tracking: "${afterText}"`);
-  40 |     }
-  41 |     expect(after).toBeLessThan(before);
-  42 |   });
-  43 |
-  44 |   test('should show error when exceeding remaining minutes', async ({ page }) => {
-  45 |     const minutesElem = page.locator('[data-testid="usage-minutes-remaining"]');
-  46 |     const text = await minutesElem.textContent();
-  47 |     const remaining = parseFloat((text || '').replace(/[^0-9.]/g, ''));
-  48 |     if (isNaN(remaining)) {
-  49 |       throw new Error(`Could not parse minutes remaining: "${text}"`);
-  50 |     }
-  51 |     await page.click('[data-testid="track-usage-button"]');
-  52 |     await page.fill('[data-testid="usage-minutes-input"]', (remaining + 100).toString());
-  53 |     await page.click('[data-testid="confirm-usage-button"]');
-  54 |     await expect(page.locator('[data-testid="usage-error"]')).toBeVisible();
-  55 |     await expect(page.locator('[data-testid="usage-error"]')).toContainText('Insufficient minutes remaining');
-  56 |   });
-  57 |
-  58 |   test('should reject negative or zero usage values', async ({ page }) => {
-  59 |     await page.click('[data-testid="track-usage-button"]');
-  60 |     await page.fill('[data-testid="usage-minutes-input"]', '-10');
-  61 |     await page.click('[data-testid="confirm-usage-button"]');
-  62 |     await expect(page.locator('[data-testid="usage-error"]')).toBeVisible();
-  63 |     await expect(page.locator('[data-testid="usage-error"]')).toContainText('Minutes used must be a positive number');
-  64 |     // Try zero
-  65 |     await page.fill('[data-testid="usage-minutes-input"]', '0');
-  66 |     await page.click('[data-testid="confirm-usage-button"]');
-  67 |     await expect(page.locator('[data-testid="usage-error"]')).toBeVisible();
-  68 |     await expect(page.locator('[data-testid="usage-error"]')).toContainText('Minutes used must be a positive number');
-  69 |   });
-  70 |
-  71 |   test('should display the usage chart', async ({ page }) => {
-  72 |     await expect(page.locator('[data-testid="tracking-usage-chart"]')).toBeVisible();
-  73 |   });
-  74 |
-  75 |   // Edge case: expired license
-  76 |   test('should show error and disable tracking for expired license', async ({ page }) => {
-  77 |     await page.goto('/login');
-> 78 |     await page.fill('[data-testid="email-input"]', 'nolicense@example.com');
-     |                ^ Error: page.fill: Test timeout of 30000ms exceeded.
-  79 |     await page.fill('[data-testid="password-input"]', 'Test1234');
-  80 |     await page.click('[data-testid="login-button"]');
-  81 |     await page.waitForURL('/dashboard');
-  82 |     // Check status
-  83 |     const status = await page.locator('[data-testid="license-status"]').textContent();
-  84 |     expect(status?.trim()).toBe('expired');
-  85 |     // Try to track usage
-  86 |     await page.click('[data-testid="track-usage-button"]');
-  87 |     await page.fill('[data-testid="usage-minutes-input"]', '10');
-  88 |     await page.click('[data-testid="confirm-usage-button"]');
-  89 |     await expect(page.locator('[data-testid="usage-error"]')).toBeVisible();
-  90 |     await expect(page.locator('[data-testid="usage-error"]')).toContainText('License is expired');
-  91 |   });
-  92 |
-  93 |   // Future enhancement: add revoked license handling test
-  94 |   // test('should show error and disable tracking for revoked license', ...);
-  95 | });
+   5 |     // Always start with a clean session to avoid state leakage between tests
+   6 |     await context.clearCookies();
+   7 |     await page.goto('/login');
+   8 |     await page.fill('[data-testid="email-input"]', 'licensed@example.com');
+   9 |     await page.fill('[data-testid="password-input"]', 'Test1234');
+   10 |     await page.click('[data-testid="login-button"]');
+   11 |     await page.waitForURL('/dashboard');
+   12 |   });
+   13 |
+   14 |   test('should display current usage minutes remaining', async ({ page }) => {
+   15 |     const minutesElem = page.locator('[data-testid="usage-minutes-remaining"]');
+   16 |     await expect(minutesElem).toBeVisible();
+   17 |     const text = await minutesElem.textContent();
+   18 |     if (!text || !/\d/.test(text)) {
+   19 |       throw new Error('Test data error: No minutes remaining displayed. Ensure test user has a valid license and usage.');
+   20 |     }
+   21 |     expect(text).toMatch(/Minutes Remaining:/);
+   22 |   });
+   23 |
+   24 |   test('should track usage and update minutes remaining', async ({ page }) => {
+   25 |     const minutesElem = page.locator('[data-testid="usage-minutes-remaining"]');
+   26 |     await expect(minutesElem).toBeVisible();
+   27 |     const beforeText = await minutesElem.textContent();
+   28 |     if (!beforeText || !/\d/.test(beforeText)) {
+   29 |       throw new Error('Test data error: No minutes remaining displayed. Ensure test user has a valid license and usage.');
+   30 |     }
+   31 |     const before = parseFloat((beforeText || '').replace(/[^0-9.]/g, ''));
+   32 |     if (isNaN(before)) {
+   33 |       throw new Error(`Could not parse minutes remaining: "${beforeText}"`);
+   34 |     }
+   35 |
+   36 |     await page.click('[data-testid="track-usage-button"]');
+   37 |     await page.fill('[data-testid="usage-minutes-input"]', '15');
+   38 |     await page.click('[data-testid="confirm-usage-button"]');
+   39 |     await expect(page.locator('[data-testid="usage-success"]')).toBeVisible();
+   40 |
+   41 |     // Wait for UI to update
+   42 |     await page.waitForTimeout(500);
+   43 |     const afterText = await minutesElem.textContent();
+   44 |     if (!afterText || !/\d/.test(afterText)) {
+   45 |       throw new Error('Test data error: No minutes remaining displayed after tracking.');
+   46 |     }
+   47 |     const after = parseFloat((afterText || '').replace(/[^0-9.]/g, ''));
+   48 |     if (isNaN(after)) {
+   49 |       throw new Error(`Could not parse minutes remaining after tracking: "${afterText}"`);
+   50 |     }
+   51 |     expect(after).toBeLessThan(before);
+   52 |   });
+   53 |
+   54 |   test('should show error when exceeding remaining minutes', async ({ page }) => {
+   55 |     const minutesElem = page.locator('[data-testid="usage-minutes-remaining"]');
+   56 |     const text = await minutesElem.textContent();
+   57 |     if (!text || !/\d/.test(text)) {
+   58 |       throw new Error('Test data error: No minutes remaining displayed. Ensure test user has a valid license and usage.');
+   59 |     }
+   60 |     const remaining = parseFloat((text || '').replace(/[^0-9.]/g, ''));
+   61 |     if (isNaN(remaining)) {
+   62 |       throw new Error(`Could not parse minutes remaining: "${text}"`);
+   63 |     }
+   64 |     await page.click('[data-testid="track-usage-button"]');
+   65 |     await page.fill('[data-testid="usage-minutes-input"]', (remaining + 100).toString());
+   66 |     await page.click('[data-testid="confirm-usage-button"]');
+   67 |     await expect(page.locator('[data-testid="usage-error"]')).toBeVisible();
+   68 |     await expect(page.locator('[data-testid="usage-error"]')).toContainText('Insufficient minutes remaining');
+   69 |   });
+   70 |
+   71 |   test('should reject negative or zero usage values', async ({ page }) => {
+   72 |     await page.click('[data-testid="track-usage-button"]');
+   73 |     await page.fill('[data-testid="usage-minutes-input"]', '-10');
+   74 |     await page.click('[data-testid="confirm-usage-button"]');
+   75 |     await expect(page.locator('[data-testid="usage-error"]')).toBeVisible();
+   76 |     await expect(page.locator('[data-testid="usage-error"]')).toContainText('Minutes used must be a positive number');
+   77 |     // Try zero
+   78 |     await page.fill('[data-testid="usage-minutes-input"]', '0');
+   79 |     await page.click('[data-testid="confirm-usage-button"]');
+   80 |     await expect(page.locator('[data-testid="usage-error"]')).toBeVisible();
+   81 |     await expect(page.locator('[data-testid="usage-error"]')).toContainText('Minutes used must be a positive number');
+   82 |   });
+   83 |
+   84 |   test('should display the usage chart', async ({ page }) => {
+   85 |     await expect(page.locator('[data-testid="tracking-usage-chart"]')).toBeVisible();
+   86 |   });
+   87 |
+   88 |   // Edge case: expired license
+   89 |   test('should show error and disable tracking for expired license', async ({ page, context }) => {
+   90 |     // Always clear cookies to ensure login page is shown
+   91 |     await context.clearCookies();
+   92 |     await page.goto('/login');
+   93 |     await page.fill('[data-testid="email-input"]', 'nolicense@example.com');
+   94 |     await page.fill('[data-testid="password-input"]', 'Test1234');
+   95 |     await page.click('[data-testid="login-button"]');
+   96 |     await page.waitForURL('/dashboard');
+   97 |     // Check status
+   98 |     const status = await page.locator('[data-testid="license-status"]').textContent();
+   99 |     expect(status?.trim()).toBe('expired');
+  100 |     // Try to track usage
+  101 |     await page.click('[data-testid="track-usage-button"]');
+  102 |     await page.fill('[data-testid="usage-minutes-input"]', '10');
+  103 |     await page.click('[data-testid="confirm-usage-button"]');
+  104 |     await expect(page.locator('[data-testid="usage-error"]')).toBeVisible();
+> 105 |     await expect(page.locator('[data-testid="usage-error"]')).toContainText('License is expired');
+      |                                                               ^ Error: Timed out 5000ms waiting for expect(locator).toContainText(expected)
+  106 |   });
+  107 |
+  108 |   // Future enhancement: add revoked license handling test
+  109 |   // test('should show error and disable tracking for revoked license', ...);
+  110 | });
 ```

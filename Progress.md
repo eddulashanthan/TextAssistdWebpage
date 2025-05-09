@@ -1,6 +1,6 @@
 # Project Progress Report
 
-## ✅ Completed Items
+## Completed Items
 
 ### 1. Database Setup
 - [x] Created `licenses` table with all required fields
@@ -62,7 +62,7 @@
 - [ ] Enhancement: For optimal performance, consider moving the logout message to a small client component instead of making the whole main page a client component
 - [ ] Add E2E and UI handling for revoked licenses (disable usage tracking, show clear error)
 
-## 🚧 Remaining Tasks
+## Remaining Tasks
 
 ### 1. Testing Coverage
 - [ ] Add more edge case tests
@@ -102,5 +102,42 @@
   - Simplifies debugging and onboarding for new developers.
   - Reduces test flakiness due to mismatched credentials or test data.
   - Makes it easier to maintain and extend the test suite in the future.
+
+## 2025-05-08
+- **Completed**: Refined `track_usage` Supabase DB function:
+    - Added `p_system_id` parameter for system binding.
+    - Implemented validation against `licenses.linked_system_id`.
+    - Added logging of usage events to the new `license_usage` table.
+    - Ensured `license_usage.minutes_used` column is `NUMERIC` for accurate tracking.
+    - Rigorously tested the updated function, including successful and failed scenarios (wrong system ID, etc.) and verified `license_usage` table logging.
+- **Completed**: Implemented and tested Row Level Security (RLS) policies for `licenses`, `transactions`, and `license_usage` tables.
+    - Ensured users can only read their own data.
+    - Restricted direct DML (INSERT, UPDATE, DELETE) operations, enforcing data modification through `SECURITY DEFINER` functions.
+    - Verified RLS for `SELECT` on the `licenses` table.
+
+## 2025-05-08 (Session Continued)
+
+### Summary:
+Completed RLS SELECT testing for `transactions` and `license_usage` tables, confirming they function as expected. Successfully implemented and tested the `/api/licenses/track-usage` API endpoint. This involved:
+- Updating the API route to use the `SUPABASE_SERVICE_ROLE_KEY` for RPC calls.
+- Correcting RPC parameter names to match the SQL function definition (`p_license_key`, `p_system_id`, `p_minutes_used`).
+- Modifying `src/middleware.ts` to exclude `/api/licenses/track-usage` from session-based authentication, allowing calls from the macOS app (simulated via `curl`).
+- Verifying successful usage tracking, insertion into `license_usage` table, and update of `hours_remaining` in the `licenses` table.
+
+### Key Accomplishments:
+- **RLS SELECT Tests:**
+  - Verified `SELECT` RLS for `transactions` table.
+  - Verified `SELECT` RLS for `license_usage` table.
+- **Track-Usage API Endpoint (`/api/licenses/track-usage`):
+  - Route handler corrected and robustly tested.
+  - Middleware configured appropriately for this endpoint.
+  - End-to-end test (curl -> Next.js API -> Supabase RPC -> DB update) successful.
+
+### Blockers:
+- None.
+
+### Next Steps from Detailed Plan:
+- Task 5: Implement Email Delivery of License Keys (Post-Payment).
+- Phase 2: Adapt macOS App to Server-Authoritative Model.
 
 Would you like me to proceed with any of these next steps?
