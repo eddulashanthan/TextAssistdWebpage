@@ -23,9 +23,6 @@
     - Return the updated hours_remaining and license status.
 #### Action: Review PLpgSQL code in Supabase. Conduct direct SQL testing.
 #### Why: These functions are the heart of your licensing logic.
-**Status: COMPLETE (for track_usage refinement and review of others) - 2025-05-08**
-- `track_usage` function successfully refined to include `system_id` validation and logging to `license_usage` table. Tested thoroughly.
-- Other core functions (`create_license`, `validate_license`, `renew_license`) were previously reviewed and refined.
 
 ### 2. Task: Implement and Rigorously Test Supabase Row Level Security (RLS) Policies
 #### Details:
@@ -35,11 +32,6 @@
 - For auth.users (and any profiles table): Ensure appropriate default RLS is in place.
 #### Action: Define and apply RLS policies in Supabase. Test using different user roles/sessions.
 #### Why: Critical for data security and preventing unauthorized access/modification.
-**Status: COMPLETE - 2025-05-08**
-- RLS policies implemented for `licenses`, `transactions`, and `license_usage` tables.
-- Users can only read their own records.
-- Direct DML operations are restricted, enforcing modifications via `SECURITY DEFINER` functions.
-- SELECT RLS verified for the `licenses` table.
 
 ### 3. Task: Complete and Test PayPal Payment Integration
 #### Files: src/app/api/payments/paypal/create-order/route.ts, src/app/api/payments/paypal/webhook/route.ts
@@ -53,20 +45,14 @@
 #### Action: Write/review TypeScript code. Conduct E2E PayPal sandbox tests.
 #### Why: Ensures PayPal payments are processed correctly and licenses are generated.
 
-### 4. Task: Implement and Test track-usage API Endpoint
-#### Files: `src/app/api/licenses/track-usage/route.ts`
+### 4.  Task: Implement and Test track-usage API Endpoint
+#### File: src/app/api/licenses/track-usage/route.ts (or similar if named differently)
 #### Details:
-- Receives `licenseKey`, `systemId`, `minutesUsed`.
-- Calls Supabase RPC `track_usage`.
-- Handles responses from RPC (success, insufficient hours, license expired/invalid, system ID mismatch).
-#### Action: Implement route handler. Test with various scenarios (valid, invalid key, insufficient time, etc.).
-#### Why: Core mechanism for your app to report usage and decrement license time.
-**Status: COMPLETE - 2025-05-08**
-- API endpoint `src/app/api/licenses/track-usage/route.ts` implemented and tested.
-- Uses Supabase `service_role_key` for RPC calls.
-- RPC parameter names (`p_license_key`, `p_system_id`, `p_minutes_used`) aligned between API route and SQL function.
-- Middleware (`src/middleware.ts`) updated to allow unauthenticated access to this specific endpoint, as it's intended for backend (macOS app) calls.
-- Successfully tested with a valid license, verified `license_usage` table insertion and `licenses.hours_remaining` update.
+- Implement: This API route should receive license_key, system_id, and minutes_used from the macOS app.
+- Implement: Call the new/refined Supabase RPC record_license_usage (from step 1.1.3).
+- Return: Respond to the macOS app with success/failure and updated license status (e.g., hours_remaining).
+#### Action: Write TypeScript code. Test with mock requests.
+#### Why: Enables accurate tracking and decrementing of license usage.
 
 ### 5. Task: Implement Email Delivery of License Keys
 #### Files: Modify Stripe (.../webhook/route.ts) and PayPal (.../webhook/route.ts) webhook handlers.
@@ -88,14 +74,57 @@
 
 This phase updates the macOS application to rely entirely on the now-robust backend.
 
-### 7. Task: Design Server-Side Trial Management API Endpoints
-#### Files (Backend): Create new API routes, e.g., src/app/api/trial/activate/route.ts, src/app/api/trial/status/route.ts.
-#### Details (Backend):
-- These endpoints will interact with Supabase (new table trials or extend licenses table to support trial types).
-- activate: Takes system_id, creates a trial record linked to it (or a temporary anonymous user if full user accounts aren't required for trials), sets expiry.
-- status: Takes system_id, returns trial validity, remaining time, etc.
-#### Action (Backend): Design schema changes/additions in Supabase. Implement API routes.
-#### Why: Lays the groundwork for secure, server-managed trials.
+### 7. Task: Implement Server-Side Trial Management (Supabase Schema & API Design)
+#### Status: Supabase `trials` table schema and RLS implemented. API endpoint design & implementation next.
+#### Files (Backend):
+- Supabase Migrations: (Applied for `public.trials` table and RLS)
+- API Routes (To Be Created): `src/app/api/trial/activate/route.ts`, `src/app/api/trial/status/route.ts`
+#### Details (Supabase - Implemented):
+- **`public.trials` Table:**
+    - Created with fields: `id`, `system_id` (UNIQUE), `user_id` (nullable, FK to `auth.users`), `status` (e.g., 'active', 'expired'), `start_time`, `duration_seconds`, `expiry_time`, analytics fields (`total_usage_minutes`, `sessions_count`, `features_used`), `last_seen_at`, and audit timestamps (`created_at`, `updated_at`).
+    - The `system_id` is intended to store the device's `IOPlatformUUID`.
+    - `expiry_time` is to be calculated as `start_time + (duration_seconds * interval '1 second')`.
+    - An `updated_at` trigger function is in place.
+- **RLS Policy for `public.trials`:**
+    - `CREATE POLICY "Users can view their own trial records" ON public.trials FOR SELECT USING (auth.uid() = user_id);`
+    - This allows authenticated users to read trial rows linked to their `user_id`.
+    - All other database interactions (creating new trials, updating trial analytics, reading trials by `system_id` for anonymous users) will be performed by backend API routes using the `service_role` key, which bypasses this RLS policy. The `UNIQUE` constraint on `system_id` is a key database-level protection.
+#### Details (API Endpoints - To Be Designed & Implemented):
+- **`/api/trial/activate`**:
+    - **Request Parameters:** `system_id` (string, required), `user_id` (string, optional, if user is authenticated).
+    - **Logic:**
+        1.  Validate `system_id`.
+        2.  Check if a trial for this `system_id` already exists in `public.trials`. If yes, return current trial status (or an error indicating trial already active/used).
+        3.  If no existing trial, create a new record in `public.trials`:
+            - Set `system_id`.
+            - Set `user_id` if provided and valid.
+            - Set `status` to 'active'.
+            - Set `start_time` to `now()`.
+            - Define `duration_seconds` (e.g., 20 minutes = 1200 seconds).
+            - Calculate and set `expiry_time`.
+            - Initialize analytics fields.
+    - **Response:** JSON object with trial details (e.g., `trial_id`, `system_id`, `status`, `expiry_time`, `remaining_seconds`).
+- **`/api/trial/status`**:
+    - **Request Parameters:** `system_id` (string, required).
+    - **Logic:**
+        1.  Validate `system_id`.
+        2.  Query `public.trials` for the record matching `system_id`.
+        3.  If found, check if `expiry_time` is in the past and update `status` to 'expired' if needed.
+        4.  Consider updating `last_seen_at` and potentially incrementing `sessions_count` here or via a dedicated usage reporting mechanism.
+    - **Response:** JSON object with trial details (e.g., `trial_id`, `system_id`, `status`, `expiry_time`, `remaining_seconds`, `total_usage_minutes`, `sessions_count`, `features_used`). If not found, appropriate error/status.
+- **(Considered) `/api/trial/report-usage` (or integrate into `/api/trial/status` logic):**
+    - **Request Parameters:** `system_id` (string, required), `session_minutes_used` (number, optional), `session_features_used` (array of strings, optional).
+    - **Logic:**
+        1. Validate `system_id`.
+        2. Find the trial. If active:
+            - Update `last_seen_at`.
+            - Increment `total_usage_minutes`.
+            - Merge `session_features_used` with existing `features_used`.
+    - **Response:** Updated trial status.
+#### Action (Backend):
+- **Done:** Defined and applied Supabase schema and RLS for `public.trials`.
+- **Next:** Implement Vercel serverless functions for `/api/trial/activate` and `/api/trial/status`, including any usage reporting logic.
+#### Why: Establishes the secure, server-authoritative backend for the trial system, moving away from client-side `UserDefaults`.
 
 ### 8. Task: Refactor macOS App Trial System
 #### Files (macOS App): LicenseAPIService.swift, TrialStatusViewModel.swift, any related UserDefaults logic.

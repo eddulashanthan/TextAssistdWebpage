@@ -1,139 +1,138 @@
 // src/app/api/trial/activate/route.ts
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import type { ActivateTrialRequest, ServerTrialState } from '@/lib/types/trial';
 
-// Define these in a shared utility file (e.g., src/lib/utils/apiUtils.ts) later
-function createErrorResponse(message: string, status: number, details?: unknown): NextResponse {
-  console.error(`API Error: ${message}`, details);
-  return NextResponse.json({ error: message, details }, { status });
+const SUPABASE_URL = process.env.SUPABASE_URL!;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
+
+interface TrialData {
+  id: string;
+  system_id: string;
+  user_id: string | null;
+  status: 'active' | 'expired';
+  start_time: string;
+  expiry_time: string;
+  duration_seconds: number;
+  total_usage_minutes: number;
+  sessions_count: number;
+  features_used: string[];
+  last_seen_at: string;
 }
 
-function createSuccessResponse(data: unknown, status: number = 200): NextResponse {
-  return NextResponse.json(data, { status });
-}
+function formatTrialResponse(trial: TrialData, message: string) {
+  const now = Date.now();
+  const expiry = new Date(trial.expiry_time).getTime();
+  const remaining_seconds = trial.status === 'active' ? Math.max(0, Math.floor((expiry - now) / 1000)) : 0;
 
-const TRIAL_DURATION_DAYS = 7;
+  return {
+    trial_id: trial.id,
+    system_id: trial.system_id,
+    user_id: trial.user_id,
+    status: trial.status,
+    start_time: trial.start_time,
+    expiry_time: trial.expiry_time,
+    duration_seconds: trial.duration_seconds,
+    remaining_seconds: remaining_seconds,
+    total_usage_minutes: trial.total_usage_minutes,
+    sessions_count: trial.sessions_count,
+    features_used: trial.features_used,
+    message: message,
+  };
+}
 
 export async function POST(request: Request) {
-  let supabaseAdmin;
+  if (request.method === 'OPTIONS') {
+    return new Response('ok', { headers: CORS_HEADERS });
+  }
+
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!supabaseUrl || !supabaseServiceRoleKey) {
-      return createErrorResponse('Supabase configuration missing', 500);
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      console.error('Missing Supabase environment variables');
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500, headers: CORS_HEADERS });
     }
 
-    supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
+    const { system_id, user_id } = await request.json();
 
-    const body = await request.json() as ActivateTrialRequest;
-    const { deviceId } = body;
-
-    if (!deviceId) {
-      return createErrorResponse('deviceId is required', 400);
+    if (!system_id) {
+      return NextResponse.json({ error: 'system_id is required' }, { status: 400, headers: CORS_HEADERS });
     }
 
-    // Check if a trial already exists for this deviceId
+    // Check if trial for this system_id already exists
     const { data: existingTrial, error: fetchError } = await supabaseAdmin
       .from('trials')
       .select('*')
-      .eq('device_id', deviceId)
+      .eq('system_id', system_id)
       .maybeSingle();
 
     if (fetchError) {
-      return createErrorResponse('Error fetching trial status', 500, fetchError.message);
+      console.error('Error fetching existing trial:', fetchError);
+      return NextResponse.json({ error: 'Error checking trial status', details: fetchError.message }, { status: 500, headers: CORS_HEADERS });
     }
 
     if (existingTrial) {
-      const now = new Date();
-      const expiresAt = new Date(existingTrial.expires_at);
-      const isActive = expiresAt > now;
-      const remainingDays = isActive ? Math.ceil((expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)) : 0;
-
-      if (isActive) {
-        return createSuccessResponse({
-          isActive: true,
-          trialId: existingTrial.id,
-          deviceId: existingTrial.device_id,
-          trialActivatedAt: existingTrial.activated_at,
-          trialExpiresAt: existingTrial.expires_at,
-          remainingDays,
-          message: 'Trial already active.',
-        } as ServerTrialState);
-      } else {
-        // Trial exists but has expired
-        return createErrorResponse('Trial has expired for this device.', 403, {
-          isActive: false,
-          trialId: existingTrial.id,
-          deviceId: existingTrial.device_id,
-          trialActivatedAt: existingTrial.activated_at,
-          trialExpiresAt: existingTrial.expires_at,
-          remainingDays: 0,
-          message: 'Trial has expired for this device.',
-        } as ServerTrialState);
+      // If trial exists, check if it's expired and update if necessary
+      if (existingTrial.status === 'active' && new Date(existingTrial.expiry_time) < new Date()) {
+        const { data: updatedTrial, error: updateError } = await supabaseAdmin
+          .from('trials')
+          .update({ status: 'expired', last_seen_at: new Date().toISOString() })
+          .eq('id', existingTrial.id)
+          .select()
+          .single();
+        if (updateError) {
+            console.error('Error updating expired trial status:', updateError);
+            // Proceed with existingTrial data, client will see it as expired
+        }
+        return NextResponse.json(formatTrialResponse(updatedTrial || existingTrial, 'Trial already exists.'), { status: 200, headers: CORS_HEADERS });
       }
+      return NextResponse.json(formatTrialResponse(existingTrial, 'Trial already exists.'), { status: 200, headers: CORS_HEADERS });
     }
 
-    // No existing trial, or existing trial has been dealt with (e.g. if you add logic to allow re-activation)
-    // Create a new trial
-    const activatedAt = new Date();
-    const expiresAt = new Date(activatedAt.getTime() + TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000);
+    // Create new trial
+    const startTime = new Date();
+    const durationSeconds = 1200; // 20 minutes
+    const expiryTime = new Date(startTime.getTime() + durationSeconds * 1000);
 
-    const { data: newTrial, error: insertError } = await supabaseAdmin
+    const newTrialData = {
+      system_id: system_id,
+      user_id: user_id || null,
+      status: 'active' as 'active',
+      start_time: startTime.toISOString(),
+      duration_seconds: durationSeconds,
+      expiry_time: expiryTime.toISOString(),
+      total_usage_minutes: 0,
+      sessions_count: 1, // First session
+      features_used: [],
+      last_seen_at: startTime.toISOString(),
+    };
+
+    const { data: createdTrial, error: insertError } = await supabaseAdmin
       .from('trials')
-      .insert({
-        device_id: deviceId,
-        activated_at: activatedAt.toISOString(),
-        expires_at: expiresAt.toISOString(),
-      })
+      .insert(newTrialData)
       .select()
       .single();
 
-    if (insertError || !newTrial) {
-      return createErrorResponse('Failed to activate trial', 500, insertError?.message);
+    if (insertError) {
+      console.error('Error creating new trial:', insertError);
+      return NextResponse.json({ error: 'Failed to activate trial', details: insertError.message }, { status: 500, headers: CORS_HEADERS });
     }
-    
-    const remainingDays = Math.ceil((expiresAt.getTime() - activatedAt.getTime()) / (1000 * 60 * 60 * 24));
 
-    return createSuccessResponse({
-      isActive: true,
-      trialId: newTrial.id,
-      deviceId: newTrial.device_id,
-      trialActivatedAt: newTrial.activated_at,
-      trialExpiresAt: newTrial.expires_at,
-      remainingDays,
-      message: 'Trial activated successfully.',
-    } as ServerTrialState, 201);
+    if (!createdTrial) {
+        console.error('Failed to create trial, no data returned.');
+        return NextResponse.json({ error: 'Failed to activate trial, server error.' }, { status: 500, headers: CORS_HEADERS });
+    }
 
-  } catch (error) {
-    let errorMessage = 'An unknown error occurred during trial activation.';
-    let errorDetails: unknown;
-    if (error instanceof Error) {
-      errorMessage = error.message;
-      errorDetails = error.stack;
-    } else if (typeof error === 'string') {
-      errorMessage = error;
-    }
-    // Check if it's a JSON parsing error
-    if (error instanceof SyntaxError && request.bodyUsed && !request.headers.get('content-type')?.includes('application/json')) {
-        errorMessage = 'Invalid request body: Expected JSON.';
-        return createErrorResponse(errorMessage, 400, errorDetails);
-    }
-    return createErrorResponse('Failed to activate trial', 500, { message: errorMessage, details: errorDetails });
+    return NextResponse.json(formatTrialResponse(createdTrial as TrialData, 'Trial activated successfully.'), { status: 201, headers: CORS_HEADERS });
+
+  } catch (error: any) {
+    console.error('Error in /api/trial/activate:', error);
+    return NextResponse.json({ error: 'An unexpected error occurred', details: error.message }, { status: 500, headers: CORS_HEADERS });
   }
-}
-
-// Basic CORS Headers - Vercel handles OPTIONS preflight automatically for functions.
-// However, ensure your Vercel project settings also allow your Swift app's origin if necessary.
-// Or, use next.config.js for more robust CORS configuration.
-export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 204,
-    headers: {
-      'Access-Control-Allow-Origin': '*', // Be more specific in production
-      'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    },
-  });
 }
