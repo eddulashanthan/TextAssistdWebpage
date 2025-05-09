@@ -78,8 +78,9 @@ export default function PricingPage() {
         let errorJson;
         try {
           errorJson = await response.json();
-        } catch (e) {
-          throw new Error(`Payment initialization failed: ${response.statusText || 'Server error'}`);
+        } catch (parseError) {
+          console.error('Failed to parse error response as JSON:', parseError);
+          throw new Error(`Payment initialization failed: ${response.statusText || 'Server error (and error response was not valid JSON)'}`);
         }
         console.error('Payment initialization API error:', errorJson);
         throw new Error(errorJson.message || `Payment initialization failed with status: ${response.status}`);
