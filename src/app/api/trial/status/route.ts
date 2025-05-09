@@ -84,7 +84,7 @@ export async function GET(request: Request) {
 // Basic CORS Headers - Vercel handles OPTIONS preflight automatically for functions.
 // However, ensure your Vercel project settings also allow your Swift app's origin if necessary.
 // Or, use next.config.js for more robust CORS configuration.
-export async function OPTIONS(request: Request) {
+export async function OPTIONS() {
   return new NextResponse(null, {
     status: 204,
     headers: {
