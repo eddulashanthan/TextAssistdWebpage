@@ -14,8 +14,8 @@ export async function POST(req: NextRequest) {
     // Call validate_license function
     const { data: validationResult, error: rpcError } = await supabase
       .rpc('validate_license', {
-        license_key: licenseKey,
-        system_id: systemId
+        p_license_key: licenseKey,
+        p_system_id: systemId
       });
 
     if (rpcError) {
