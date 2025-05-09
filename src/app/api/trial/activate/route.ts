@@ -1,11 +1,6 @@
 // src/app/api/trial/activate/route.ts
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const SUPABASE_URL = process.env.SUPABASE_URL!;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -49,16 +44,20 @@ function formatTrialResponse(trial: TrialData, message: string) {
 }
 
 export async function POST(request: Request) {
+  const SUPABASE_URL = process.env.SUPABASE_URL;
+  const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    console.error('Missing Supabase environment variables');
+    return NextResponse.json({ error: 'Server configuration error - missing Supabase credentials' }, { status: 500, headers: CORS_HEADERS });
+  }
+  const supabaseAdmin: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
   if (request.method === 'OPTIONS') {
     return new Response('ok', { headers: CORS_HEADERS });
   }
 
   try {
-    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-      console.error('Missing Supabase environment variables');
-      return NextResponse.json({ error: 'Server configuration error' }, { status: 500, headers: CORS_HEADERS });
-    }
-
     const { system_id, user_id } = await request.json();
 
     if (!system_id) {
@@ -103,7 +102,7 @@ export async function POST(request: Request) {
     const newTrialData = {
       system_id: system_id,
       user_id: user_id || null,
-      status: 'active' as 'active',
+      status: 'active',
       start_time: startTime.toISOString(),
       duration_seconds: durationSeconds,
       expiry_time: expiryTime.toISOString(),
@@ -131,8 +130,12 @@ export async function POST(request: Request) {
 
     return NextResponse.json(formatTrialResponse(createdTrial as TrialData, 'Trial activated successfully.'), { status: 201, headers: CORS_HEADERS });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error in /api/trial/activate:', error);
-    return NextResponse.json({ error: 'An unexpected error occurred', details: error.message }, { status: 500, headers: CORS_HEADERS });
+    let errorMessage = 'An unexpected error occurred';
+    if (error instanceof Error) {
+        errorMessage = error.message;
+    }
+    return NextResponse.json({ error: errorMessage, details: error }, { status: 500, headers: CORS_HEADERS });
   }
 }

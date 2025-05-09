@@ -1,11 +1,6 @@
 // src/app/api/trial/status/route.ts
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const SUPABASE_URL = process.env.SUPABASE_URL!;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -50,16 +45,21 @@ function formatTrialResponse(trial: TrialData, message: string) {
 }
 
 export async function POST(request: Request) { // Assuming POST to receive system_id in body
+  // Initialize Supabase client here
+  const SUPABASE_URL = process.env.SUPABASE_URL;
+  const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    console.error('Missing Supabase environment variables');
+    return NextResponse.json({ error: 'Server configuration error - missing Supabase credentials' }, { status: 500, headers: CORS_HEADERS });
+  }
+  const supabaseAdmin: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
   if (request.method === 'OPTIONS') {
     return new Response('ok', { headers: CORS_HEADERS });
   }
 
   try {
-    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-      console.error('Missing Supabase environment variables');
-      return NextResponse.json({ error: 'Server configuration error' }, { status: 500, headers: CORS_HEADERS });
-    }
-
     const { system_id } = await request.json();
 
     if (!system_id) {
@@ -82,15 +82,13 @@ export async function POST(request: Request) { // Assuming POST to receive syste
       return NextResponse.json({ error: 'Trial not found for this system ID' }, { status: 404, headers: CORS_HEADERS });
     }
 
-    let currentStatus = trial.status;
-    let trialDataToUpdate: Partial<TrialData> = {
+    const trialDataToUpdate: Partial<TrialData> & { sessions_count: number } = {
         last_seen_at: new Date().toISOString(),
-        sessions_count: trial.sessions_count + 1 // Increment sessions_count
+        sessions_count: trial.sessions_count + 1, // Increment sessions_count
     };
 
     // Check if trial is active and has expired
     if (trial.status === 'active' && new Date(trial.expiry_time) < new Date()) {
-      currentStatus = 'expired';
       trialDataToUpdate.status = 'expired';
     }
 
@@ -112,8 +110,12 @@ export async function POST(request: Request) { // Assuming POST to receive syste
 
     return NextResponse.json(formatTrialResponse(updatedTrial as TrialData, 'Trial status retrieved successfully.'), { status: 200, headers: CORS_HEADERS });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error in /api/trial/status:', error);
-    return NextResponse.json({ error: 'An unexpected error occurred', details: error.message }, { status: 500, headers: CORS_HEADERS });
+    let errorMessage = 'An unexpected error occurred';
+    if (error instanceof Error) {
+        errorMessage = error.message;
+    }
+    return NextResponse.json({ error: errorMessage, details: error }, { status: 500, headers: CORS_HEADERS });
   }
 }
