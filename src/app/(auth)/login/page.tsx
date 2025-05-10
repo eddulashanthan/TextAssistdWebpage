@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/context/AuthContext';
 
 export default function LoginPage() {
@@ -11,7 +11,18 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { signIn } = useAuth();
+
+  useEffect(() => {
+    const authError = searchParams.get('error');
+    const message = searchParams.get('message');
+    if (authError && message) {
+      setError(message);
+      // Optional: Clean the URL
+      router.replace('/login', { scroll: false });
+    }
+  }, [searchParams, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,9 +36,22 @@ export default function LoginPage() {
         throw signInError;
       }
 
-      router.push('/dashboard');
-    } catch {
-      setError('Failed to sign in. Please check your credentials.');
+      // On successful sign-in, check if there's a redirect query param
+      const redirectPath = searchParams.get('redirect') || '/dashboard';
+      router.push(redirectPath);
+
+    } catch (err: unknown) {
+      let errorMessage = 'Failed to sign in. Please try again.';
+      if (err instanceof Error) {
+        if (err.message.toLowerCase().includes('email not confirmed') || err.message.toLowerCase().includes('user not confirmed')) {
+          errorMessage = 'Email not confirmed. Please check your inbox for a verification link.';
+        } else if (err.message.toLowerCase().includes('invalid login credentials')) {
+          errorMessage = 'Invalid email or password. Please try again.';
+        } else {
+          errorMessage = err.message || 'An unexpected error occurred during sign in.'; 
+        }
+      }
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }
