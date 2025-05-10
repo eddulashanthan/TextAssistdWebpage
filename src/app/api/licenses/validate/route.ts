@@ -1,9 +1,26 @@
-import { NextRequest } from 'next/server';
-import { supabase } from '@/lib/utils/supabase'; 
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 import { createErrorResponse, createSuccessResponse } from '@/lib/apiUtils';
 
 export async function POST(req: NextRequest) {
   console.log('[LOG] /api/licenses/validate: POST request received');
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    console.error('[ERROR] /api/licenses/validate: Supabase URL or Service Key not configured.');
+    return new NextResponse(JSON.stringify({ 
+      message: 'Server configuration error: Supabase environment variables not set.', 
+      errorCode: 'SERVER_CONFIG_ERROR',
+      details: {}
+    }), { 
+      status: 500, 
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
     const body = await req.json();
@@ -17,7 +34,7 @@ export async function POST(req: NextRequest) {
     }
 
     console.log(`[LOG] /api/licenses/validate: Calling RPC 'validate_license' with key: ${licenseKey}, systemId: ${systemId}`);
-    const { data: rpcResponse, error: rpcError } = await supabase
+    const { data: rpcResponse, error: rpcError } = await supabaseAdmin
       .rpc('validate_license', {
         p_license_key: licenseKey,
         p_system_id: systemId,
