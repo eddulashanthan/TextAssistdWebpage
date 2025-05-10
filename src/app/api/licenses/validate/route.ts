@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
       }
       
       // Include additional details from RPC response if available
-      const errorDetails: Record<string, any> = {};
+      const errorDetails: Record<string, unknown> = {};
       if (rpcResponse.license_key) errorDetails.licenseKey = rpcResponse.license_key;
       if (rpcResponse.status) errorDetails.status = rpcResponse.status;
       if (rpcResponse.hours_remaining !== undefined) errorDetails.hoursRemaining = rpcResponse.hours_remaining;
