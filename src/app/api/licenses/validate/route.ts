@@ -29,8 +29,8 @@ export async function POST(req: NextRequest) {
 
     if (rpcError) {
       console.error('[ERROR] /api/licenses/validate: RPC error occurred:', JSON.stringify(rpcError));
-      let statusCode = 500;
-      let errorCode = rpcError.code || 'RPC_ERROR'; // Use Supabase error code if available
+      const statusCode: number = 500;
+      const errorCode: string = rpcError.code || 'RPC_ERROR'; // Use Supabase error code if available
       // Example: Postgres error codes for unique violation '23505', not found related 'P0002' (custom from SQL fn)
       // Adjust statusCode based on specific rpcError.code if needed
       // if (rpcError.code === 'P0002' /* NO_ACTIVE_LICENSE_FOUND */) { statusCode = 404; }
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
       const message = rpcResponse.message || 'License validation failed.';
       console.warn(`[WARN] /api/licenses/validate: License validation failed by RPC. Reason: ${reason}, Message: ${message}. Full Response:`, JSON.stringify(rpcResponse));
 
-      let statusCode = 400; 
+      let statusCode: number = 400; 
       if (reason === 'not_found') {
         statusCode = 404;
       } else if (reason === 'time_expired' || reason === 'hours_depleted' || rpcResponse.status === 'expired') {
@@ -90,18 +90,18 @@ export async function POST(req: NextRequest) {
       return createErrorResponse(message, statusCode, reason, errorDetailsPayload);
     }
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[CRITICAL_UNHANDLED_ERROR] /api/licenses/validate: Exception caught in route handler:', {
-      errorMessage: error.message,
-      errorStack: error.stack,
-      errorDetails: error.details, 
-      errorName: error.name
+      errorMessage: error instanceof Error ? error.message : 'Unknown error message',
+      errorStack: error instanceof Error ? error.stack : 'No stack trace available',
+      errorDetails: typeof error === 'object' && error !== null && 'details' in error ? (error as { details: unknown }).details : 'No details available',
+      rawError: error
     });
     return createErrorResponse(
       'An unexpected server error occurred during license validation.', 
       500, 
       'UNEXPECTED_SERVER_ERROR', 
-      { originalErrorName: error.name, originalErrorMessage: error.message }
+      { originalErrorName: error instanceof Error ? error.name : 'Unknown error', originalErrorMessage: error instanceof Error ? error.message : 'Unknown error message' }
     );
   }
 }
