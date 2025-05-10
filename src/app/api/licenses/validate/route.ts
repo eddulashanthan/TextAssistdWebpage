@@ -46,51 +46,64 @@ export async function POST(req: NextRequest) {
 
     if (rpcError) {
       console.error('[ERROR] /api/licenses/validate: RPC error occurred:', JSON.stringify(rpcError));
-      const statusCode: number = 500;
-      const errorCode: string = rpcError.code || 'RPC_ERROR'; // Use Supabase error code if available
-      // Example: Postgres error codes for unique violation '23505', not found related 'P0002' (custom from SQL fn)
-      // Adjust statusCode based on specific rpcError.code if needed
-      // if (rpcError.code === 'P0002' /* NO_ACTIVE_LICENSE_FOUND */) { statusCode = 404; }
+      const statusCode: number = 500; // Default status code for unexpected RPC errors
+      
+      // Construct a details object for createErrorResponse
+      const errorDetailsPayload: Record<string, unknown> = {};
+      // PostgrestError types 'details' and 'hint' as string.
+      // We add them to payload if they are non-empty.
+      if (rpcError.details) { 
+        errorDetailsPayload.supabase_error_details_string = rpcError.details;
+      }
+      if (rpcError.hint) { 
+        errorDetailsPayload.supabase_error_hint = rpcError.hint;
+      }
+      // Add any other relevant parts of rpcError if they exist and are useful for the client
+      // For example, if rpcError itself has structured fields other than 'message', 'code', 'details', 'hint'.
 
       return createErrorResponse(
-        rpcError.message || 'Failed to validate license due to a database error.',
-        statusCode,
-        errorCode,
-        { hint: rpcError.hint, details: rpcError.details } 
+        rpcError.message || 'Failed to validate license due to a database error.', 
+        // For status: Check if 'status' exists on rpcError and is a number
+        ('status' in rpcError && typeof (rpcError as Record<string, unknown>)['status'] === 'number'
+          ? (rpcError as Record<string, unknown>)['status'] as number 
+          : statusCode),
+        rpcError.code || 'DB_RPC_ERROR', // .code is part of PostgrestError
+        Object.keys(errorDetailsPayload).length > 0 ? errorDetailsPayload : undefined // Pass object or undefined
       );
     }
 
-    if (!rpcResponse || typeof rpcResponse.valid !== 'boolean') {
-      console.error('[ERROR] /api/licenses/validate: Invalid or unexpected response structure from RPC:', { rpcResponse });
-      return createErrorResponse('Invalid response from validation service.', 500, 'RPC_INVALID_RESPONSE', { receivedResponse: rpcResponse });
-    }
-
-    if (rpcResponse.valid) {
-      // Construct license_details from the flat rpcResponse object
-      const constructedLicenseDetails = {
+    // If there's no rpcError, it means the call was successful from Supabase's perspective
+    // but we still need to check if the license itself is 'valid' according to the RPC response.
+    if (rpcResponse && rpcResponse.valid === true) {
+      // License is valid according to Supabase RPC
+      const license_details_for_client = {
+        status: rpcResponse.status, // Should be "active"
+        reason: rpcResponse.reason, // Include if relevant
         hours_remaining: rpcResponse.hours_remaining,
-        status: rpcResponse.status,
         linked_system_id: rpcResponse.linked_system_id,
         expires_at: rpcResponse.expires_at,
-        // Add any other fields from rpcResponse that should be part of license_details
+        // Add any other fields from rpcResponse that should be in 'details'
       };
-      console.log('[LOG] /api/licenses/validate: RPC response is valid. Constructed license_details:', JSON.stringify(constructedLicenseDetails));
+      console.log('[LOG] /api/licenses/validate: RPC response is valid. Constructed license_details_for_client:', JSON.stringify(license_details_for_client));
       
-      // The previous check for !rpcResponse.license_details is removed as we now construct it.
-      // It's assumed that if rpcResponse.valid is true, the necessary fields for constructedLicenseDetails are present.
+      // This object is what the Swift client expects for StandardLicenseValidationData
+      const clientExpectedDataPayload = {
+        message: rpcResponse.message || 'License valid', // This is StandardLicenseValidationData.message
+        key: licenseKey,                                // This is StandardLicenseValidationData.key
+        details: license_details_for_client             // This is StandardLicenseValidationData.details
+      };
 
+      // createSuccessResponse will produce JSON: { success: true, data: clientExpectedDataPayload }
+      // The Swift client's StandardApiResponse.data will be populated by clientExpectedDataPayload.
       return createSuccessResponse(
-        {
-          valid: true, 
-          message: rpcResponse.message || 'License validated successfully.',
-          license_details: constructedLicenseDetails // Use the constructed object here
-        }, 
+        clientExpectedDataPayload, 
         200
       );
+
     } else {
-      // VALIDATION FAILED as per RPC logic (e.g., key not found, expired, etc.)
-      const reason = rpcResponse.reason || 'UNKNOWN_VALIDATION_FAILURE';
-      const message = rpcResponse.message || 'License validation failed.';
+      // License is NOT valid according to Supabase RPC (e.g., expired, not found, system mismatch, or rpcResponse itself is null/undefined)
+      const reason = rpcResponse?.reason || 'UNKNOWN_VALIDATION_FAILURE';
+      const message = rpcResponse?.message || 'License validation failed.';
       console.warn(`[WARN] /api/licenses/validate: License validation failed by RPC. Reason: ${reason}, Message: ${message}. Full Response:`, JSON.stringify(rpcResponse));
 
       let statusCode: number = 400; 
