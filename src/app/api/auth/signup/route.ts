@@ -5,6 +5,8 @@ export async function POST(request: Request) {
   try {
     const { email, password } = await request.json();
 
+    console.log('[SIGNUP_DEBUG] NEXT_PUBLIC_APP_URL:', process.env.NEXT_PUBLIC_APP_URL); // Debug log
+
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
