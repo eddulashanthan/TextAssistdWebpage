@@ -66,16 +66,24 @@ export async function POST(req: NextRequest) {
     }
 
     if (rpcResponse.valid) {
-      console.log('[LOG] /api/licenses/validate: RPC response is valid. Details:', JSON.stringify(rpcResponse.license_details));
-      if (!rpcResponse.license_details) {
-        console.error('[CRITICAL_ERROR] /api/licenses/validate: RPC returned valid:true but no license_details. Response:', JSON.stringify(rpcResponse));
-        return createErrorResponse('License is valid but critical details are missing from the response.', 500, 'RPC_MISSING_DETAILS_ON_SUCCESS', { rpcResponse });
-      }
+      // Construct license_details from the flat rpcResponse object
+      const constructedLicenseDetails = {
+        hours_remaining: rpcResponse.hours_remaining,
+        status: rpcResponse.status,
+        linked_system_id: rpcResponse.linked_system_id,
+        expires_at: rpcResponse.expires_at,
+        // Add any other fields from rpcResponse that should be part of license_details
+      };
+      console.log('[LOG] /api/licenses/validate: RPC response is valid. Constructed license_details:', JSON.stringify(constructedLicenseDetails));
+      
+      // The previous check for !rpcResponse.license_details is removed as we now construct it.
+      // It's assumed that if rpcResponse.valid is true, the necessary fields for constructedLicenseDetails are present.
+
       return createSuccessResponse(
         {
           valid: true, 
           message: rpcResponse.message || 'License validated successfully.',
-          license_details: rpcResponse.license_details
+          license_details: constructedLicenseDetails // Use the constructed object here
         }, 
         200
       );
