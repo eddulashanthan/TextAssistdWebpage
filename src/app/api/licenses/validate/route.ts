@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Call validate_license function
-    const { data: validationResult, error: rpcError } = await supabase
+    const { data: rpcResponse, error: rpcError } = await supabase
       .rpc('validate_license', {
         p_license_key: licenseKey,
         p_system_id: systemId
@@ -21,72 +21,84 @@ export async function POST(req: NextRequest) {
     if (rpcError) {
       console.error('API Validate: RPC call to validate_license failed:', rpcError);
       return createErrorResponse(
-        'License validation service encountered an error.', 
+        rpcError.message || 'License validation service encountered an error.', 
         500, 
         'VALIDATION_RPC_ERROR', 
-        { details: rpcError.message }
+        { details: rpcError.details || rpcError.hint || rpcError.message }
       );
     }
 
-    // Check the 'valid' field from the RPC result
-    if (!validationResult || typeof validationResult.valid === 'undefined') {
-        console.error('API Validate: RPC validate_license returned unexpected data:', validationResult);
+    // Check the structure of the RPC response
+    if (!rpcResponse || typeof rpcResponse.valid === 'undefined') {
+        console.error('API Validate: RPC validate_license returned unexpected data structure:', rpcResponse);
         return createErrorResponse(
-            'License validation service returned an unexpected response.',
+            'License validation service returned an unexpected response format.',
             500,
-            'VALIDATION_RPC_UNEXPECTED_RESPONSE'
+            'VALIDATION_RPC_UNEXPECTED_RESPONSE_STRUCTURE'
         );
     }
 
-    if (!validationResult.valid) {
-      let statusCode = 403;
-      let errorCode = 'LICENSE_INVALID';
-      const message = validationResult.message || 'License validation failed.';
+    if (!rpcResponse.valid) {
+      // Use the 'reason' and 'message' from the RPC directly
+      const message = rpcResponse.message || 'License validation failed.';
+      const reason = rpcResponse.reason || 'LICENSE_INVALID';
+      let statusCode = 403; // Default to forbidden
 
-      if (message.includes('not found')) {
+      // Adjust status codes based on specific reasons
+      if (reason === 'not_found') {
         statusCode = 404;
-        errorCode = 'LICENSE_NOT_FOUND';
-      } else if (message.includes('bound to different system')) {
-        errorCode = 'LICENSE_SYSTEM_MISMATCH';
-      } else if (message.includes('expired')) {
-        errorCode = 'LICENSE_EXPIRED';
-      } else if (message.includes('not active')) {
-        errorCode = 'LICENSE_NOT_ACTIVE';
+      } else if (reason === 'time_expired' || reason === 'hours_depleted' || (rpcResponse.status === 'expired')) {
+        statusCode = 403; // Or a more specific one like 410 Gone if you prefer for expired
+      } else if (reason === 'status_inactive' || reason === 'system_mismatch') {
+        statusCode = 403;
+      } else if (reason === 'internal_error') {
+        statusCode = 500;
       }
-      // Add more specific checks if needed
+      
+      // Include additional details from RPC response if available
+      const errorDetails: Record<string, any> = {};
+      if (rpcResponse.license_key) errorDetails.licenseKey = rpcResponse.license_key;
+      if (rpcResponse.status) errorDetails.status = rpcResponse.status;
+      if (rpcResponse.hours_remaining !== undefined) errorDetails.hoursRemaining = rpcResponse.hours_remaining;
+      if (rpcResponse.expires_at) errorDetails.expiresAt = rpcResponse.expires_at;
+      if (rpcResponse.error_details) errorDetails.rpcErrorDetails = rpcResponse.error_details;
 
-      return createErrorResponse(message, statusCode, errorCode);
+
+      return createErrorResponse(message, statusCode, reason.toUpperCase(), Object.keys(errorDetails).length > 0 ? errorDetails : undefined);
     }
 
-    // If RPC validation is successful, proceed to get full license details for the response.
-    // Note: The RPC returns most necessary fields (hours_remaining, status, expires_at).
-    // This additional fetch is primarily for license.id and license.last_validated_at as per original logic.
-    // Consider optimizing this by having the RPC return all necessary data if possible.
-    const { data: license, error: licenseFetchError } = await supabase
-      .from('licenses')
-      .select('id, expires_at, status, last_validated_at') // Select only needed fields
-      .eq('key', licenseKey)
-      .single();
-
-    if (licenseFetchError || !license) {
-      console.error('API Validate: Failed to fetch license details post-RPC validation:', licenseFetchError);
-      return createErrorResponse(
-        'Failed to retrieve full license details after validation.', 
-        500, // This is a server-side inconsistency
-        'POST_VALIDATION_FETCH_ERROR', 
-        { licenseKey }
-      );
+    // If RPC validation is successful, use the license_details directly
+    // No need for a second database call.
+    if (!rpcResponse.license_details) {
+        console.error('API Validate: Successful RPC validate_license response missing license_details:', rpcResponse);
+        return createErrorResponse(
+            'License validation succeeded but essential details are missing.',
+            500,
+            'VALIDATION_SUCCESS_MISSING_DETAILS'
+        );
     }
+    
+    // The RPC now returns all necessary details within the 'license_details' object.
+    // Map these details to the desired response structure.
+    const licenseDetails = rpcResponse.license_details;
 
-    // Construct success response using data from both RPC and direct fetch
     return createSuccessResponse({
-      message: validationResult.message || 'License validated successfully',
+      message: rpcResponse.message || 'License validated successfully',
       license: {
-        id: license.id,
-        expiresAt: license.expires_at || validationResult.expires_at || null, // Prefer DB, fallback to RPC
-        hoursRemaining: validationResult.hours_remaining,
-        status: license.status || validationResult.status, // Prefer DB, fallback to RPC
-        lastValidatedAt: license.last_validated_at
+        // Ensure all fields your Swift client expects are mapped here
+        // from licenseDetails
+        id: licenseDetails.user_id, // Assuming user_id can act as a primary reference for the license context on client. Adjust if license UUID 'id' is needed from SQL.
+        licenseKey: licenseDetails.license_key,
+        userId: licenseDetails.user_id,
+        hoursRemaining: licenseDetails.hours_remaining,
+        status: licenseDetails.status,
+        licenseType: licenseDetails.license_type,
+        linkedSystemId: licenseDetails.linked_system_id,
+        createdAt: licenseDetails.created_at,
+        purchaseDate: licenseDetails.purchase_date,
+        lastValidatedAt: licenseDetails.last_validated_at,
+        expiresAt: licenseDetails.expires_at,
+        transactions: licenseDetails.transactions 
       }
     }, 200);
 
