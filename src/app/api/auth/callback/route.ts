@@ -6,11 +6,11 @@ import { cookies } from 'next/headers';
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get('code');
-  const next = searchParams.get('next') ?? '/'; 
+  // If "next" is in param, use it. Otherwise, default to /dashboard after verification.
+  const next = searchParams.get('next') ?? '/dashboard'; 
 
   if (code) {
     // If the linter sees cookies() as a Promise, we await it.
-    // This is unusual for Route Handlers but addresses the lint error.
     const cookieStoreInstance = await cookies(); 
 
     const supabase = createServerClient(
@@ -22,11 +22,9 @@ export async function GET(request: NextRequest) {
             return cookieStoreInstance.get(name)?.value;
           },
           set(name: string, value: string, options: CookieOptions) {
-            // Ensure options is correctly passed according to next/headers API
             cookieStoreInstance.set(name, value, options);
           },
           remove(name: string, options: CookieOptions) {
-            // Use set with an empty value for removal, a common pattern
             cookieStoreInstance.set(name, '', options);
           },
         },
@@ -38,12 +36,13 @@ export async function GET(request: NextRequest) {
       if (redirectUrl.origin === origin) {
         return NextResponse.redirect(redirectUrl.toString());
       }
+      // Fallback to /dashboard if the 'next' URL was external or invalid
       return NextResponse.redirect(new URL('/dashboard', origin).toString()); 
     }
   }
 
   const errorRedirectUrl = new URL('/login', origin); 
   errorRedirectUrl.searchParams.set('error', 'auth_error');
-  errorRedirectUrl.searchParams.set('message', 'Invalid or expired verification link. Please try signing up or logging in again.');
+  errorRedirectUrl.searchParams.set('message', 'Invalid or expired verification link. Please try logging in again.');
   return NextResponse.redirect(errorRedirectUrl.toString());
 }
