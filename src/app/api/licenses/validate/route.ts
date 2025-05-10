@@ -1,131 +1,107 @@
 import { NextRequest } from 'next/server';
-import { supabase } from '@/lib/utils/supabase';
+import { supabase } from '@/lib/utils/supabase'; 
 import { createErrorResponse, createSuccessResponse } from '@/lib/apiUtils';
 
 export async function POST(req: NextRequest) {
+  console.log('[LOG] /api/licenses/validate: POST request received');
+
   try {
     const body = await req.json();
+    console.log('[LOG] /api/licenses/validate: Request body:', JSON.stringify(body));
+
     const { licenseKey, systemId } = body;
 
     if (!licenseKey || !systemId) {
+      console.warn('[WARN] /api/licenses/validate: Missing licenseKey or systemId');
       return createErrorResponse('License key and system ID are required', 400, 'MISSING_PARAMETERS');
     }
 
-    // Call validate_license function
+    console.log(`[LOG] /api/licenses/validate: Calling RPC 'validate_license' with key: ${licenseKey}, systemId: ${systemId}`);
     const { data: rpcResponse, error: rpcError } = await supabase
       .rpc('validate_license', {
         p_license_key: licenseKey,
-        p_system_id: systemId
+        p_system_id: systemId,
       });
 
+    // CRITICAL LOGGING for raw Supabase response:
+    console.log('[LOG] /api/licenses/validate: Raw rpcResponse:', JSON.stringify(rpcResponse));
+    console.log('[LOG] /api/licenses/validate: Raw rpcError:', JSON.stringify(rpcError));
+
     if (rpcError) {
-      console.error('API Validate: RPC call to validate_license failed:', rpcError);
+      console.error('[ERROR] /api/licenses/validate: RPC error occurred:', JSON.stringify(rpcError));
+      let statusCode = 500;
+      let errorCode = rpcError.code || 'RPC_ERROR'; // Use Supabase error code if available
+      // Example: Postgres error codes for unique violation '23505', not found related 'P0002' (custom from SQL fn)
+      // Adjust statusCode based on specific rpcError.code if needed
+      // if (rpcError.code === 'P0002' /* NO_ACTIVE_LICENSE_FOUND */) { statusCode = 404; }
+
       return createErrorResponse(
-        rpcError.message || 'License validation service encountered an error.', 
-        500, 
-        'VALIDATION_RPC_ERROR', 
-        { details: rpcError.details || rpcError.hint || rpcError.message }
+        rpcError.message || 'Failed to validate license due to a database error.',
+        statusCode,
+        errorCode,
+        { hint: rpcError.hint, details: rpcError.details } 
       );
     }
 
-    // Check the structure of the RPC response
-    if (!rpcResponse || typeof rpcResponse.valid === 'undefined') {
-        console.error('API Validate: RPC validate_license returned unexpected data structure:', rpcResponse);
-        return createErrorResponse(
-            'License validation service returned an unexpected response format.',
-            500,
-            'VALIDATION_RPC_UNEXPECTED_RESPONSE_STRUCTURE'
-        );
+    if (!rpcResponse || typeof rpcResponse.valid !== 'boolean') {
+      console.error('[ERROR] /api/licenses/validate: Invalid or unexpected response structure from RPC:', { rpcResponse });
+      return createErrorResponse('Invalid response from validation service.', 500, 'RPC_INVALID_RESPONSE', { receivedResponse: rpcResponse });
     }
 
-    if (!rpcResponse.valid) {
-      // Use the 'reason' and 'message' from the RPC directly
+    if (rpcResponse.valid) {
+      console.log('[LOG] /api/licenses/validate: RPC response is valid. Details:', JSON.stringify(rpcResponse.license_details));
+      if (!rpcResponse.license_details) {
+        console.error('[CRITICAL_ERROR] /api/licenses/validate: RPC returned valid:true but no license_details. Response:', JSON.stringify(rpcResponse));
+        return createErrorResponse('License is valid but critical details are missing from the response.', 500, 'RPC_MISSING_DETAILS_ON_SUCCESS', { rpcResponse });
+      }
+      return createSuccessResponse(
+        {
+          valid: true, 
+          message: rpcResponse.message || 'License validated successfully.',
+          license_details: rpcResponse.license_details
+        }, 
+        200
+      );
+    } else {
+      // VALIDATION FAILED as per RPC logic (e.g., key not found, expired, etc.)
+      const reason = rpcResponse.reason || 'UNKNOWN_VALIDATION_FAILURE';
       const message = rpcResponse.message || 'License validation failed.';
-      const reason = rpcResponse.reason || 'LICENSE_INVALID';
-      let statusCode = 403; // Default to forbidden
+      console.warn(`[WARN] /api/licenses/validate: License validation failed by RPC. Reason: ${reason}, Message: ${message}. Full Response:`, JSON.stringify(rpcResponse));
 
-      // Adjust status codes based on specific reasons
+      let statusCode = 400; 
       if (reason === 'not_found') {
         statusCode = 404;
-      } else if (reason === 'time_expired' || reason === 'hours_depleted' || (rpcResponse.status === 'expired')) {
-        statusCode = 403; // Or a more specific one like 410 Gone if you prefer for expired
+      } else if (reason === 'time_expired' || reason === 'hours_depleted' || rpcResponse.status === 'expired') {
+        statusCode = 403; 
       } else if (reason === 'status_inactive' || reason === 'system_mismatch') {
         statusCode = 403;
-      } else if (reason === 'internal_error') {
+      } else if (reason === 'internal_error') { 
         statusCode = 500;
       }
       
-      // Include additional details from RPC response if available
-      const errorDetails: Record<string, unknown> = {};
-      if (rpcResponse.license_key) errorDetails.licenseKey = rpcResponse.license_key;
-      if (rpcResponse.status) errorDetails.status = rpcResponse.status;
-      if (rpcResponse.hours_remaining !== undefined) errorDetails.hoursRemaining = rpcResponse.hours_remaining;
-      if (rpcResponse.expires_at) errorDetails.expiresAt = rpcResponse.expires_at;
-      if (rpcResponse.error_details) errorDetails.rpcErrorDetails = rpcResponse.error_details;
+      const errorDetailsPayload = { 
+        reason: reason,
+        ...(rpcResponse.license_key && { licenseKey: rpcResponse.license_key }),
+        ...(rpcResponse.status && { status: rpcResponse.status }),
+        ...(rpcResponse.hours_remaining !== undefined && { hoursRemaining: rpcResponse.hours_remaining }),
+        ...(rpcResponse.expires_at && { expiresAt: rpcResponse.expires_at }),
+      };
 
-
-      return createErrorResponse(message, statusCode, reason.toUpperCase(), Object.keys(errorDetails).length > 0 ? errorDetails : undefined);
+      return createErrorResponse(message, statusCode, reason, errorDetailsPayload);
     }
 
-    // If RPC validation is successful, use the license_details directly
-    // No need for a second database call.
-    if (!rpcResponse.license_details) {
-        console.error('API Validate: Successful RPC validate_license response missing license_details:', rpcResponse);
-        return createErrorResponse(
-            'License validation succeeded but essential details are missing.',
-            500,
-            'VALIDATION_SUCCESS_MISSING_DETAILS'
-        );
-    }
-    
-    // The RPC now returns all necessary details within the 'license_details' object.
-    // Map these details to the desired response structure.
-    const licenseDetails = rpcResponse.license_details;
-
-    return createSuccessResponse({
-      message: rpcResponse.message || 'License validated successfully',
-      license: {
-        // Ensure all fields your Swift client expects are mapped here
-        // from licenseDetails
-        id: licenseDetails.user_id, // Assuming user_id can act as a primary reference for the license context on client. Adjust if license UUID 'id' is needed from SQL.
-        licenseKey: licenseDetails.license_key,
-        userId: licenseDetails.user_id,
-        hoursRemaining: licenseDetails.hours_remaining,
-        status: licenseDetails.status,
-        licenseType: licenseDetails.license_type,
-        linkedSystemId: licenseDetails.linked_system_id,
-        createdAt: licenseDetails.created_at,
-        purchaseDate: licenseDetails.purchase_date,
-        lastValidatedAt: licenseDetails.last_validated_at,
-        expiresAt: licenseDetails.expires_at,
-        transactions: licenseDetails.transactions 
-      }
-    }, 200);
-
-  } catch (error: unknown) {
-    console.error('API Validate: Unhandled error:', error);
-    let errorMessage = 'An unexpected server error occurred.';
-    let errorName: string | undefined;
-
-    if (error instanceof SyntaxError && error.message.includes('JSON')) {
-      return createErrorResponse(
-        'Invalid JSON payload',
-        400,
-        'INVALID_JSON_PAYLOAD',
-        { details: error.message }
-      );
-    }
-    
-    if (error instanceof Error) {
-      errorMessage = error.message;
-      errorName = error.name;
-    }
-
+  } catch (error: any) {
+    console.error('[CRITICAL_UNHANDLED_ERROR] /api/licenses/validate: Exception caught in route handler:', {
+      errorMessage: error.message,
+      errorStack: error.stack,
+      errorDetails: error.details, 
+      errorName: error.name
+    });
     return createErrorResponse(
-      errorMessage,
-      500,
-      'INTERNAL_SERVER_ERROR',
-      { errorName: errorName }
+      'An unexpected server error occurred during license validation.', 
+      500, 
+      'UNEXPECTED_SERVER_ERROR', 
+      { originalErrorName: error.name, originalErrorMessage: error.message }
     );
   }
 }
